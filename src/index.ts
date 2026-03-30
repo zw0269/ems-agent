@@ -11,6 +11,8 @@ import { checkLLMConnectivity } from './utils/healthCheck.js';
 import { startStatusServer } from './server/statusServer.js';
 import { statusStore } from './server/statusStore.js';
 import { logger } from './utils/logger.js';
+import { getDb } from './db/database.js';
+import { insertAlarm, updateAlarmFinished } from './db/alarmRepository.js';
 import type { Alarm } from './types/index.js';
 
 /**
@@ -77,6 +79,7 @@ async function processAlarm(alarm: Alarm) {
     deviceId: alarm.deviceId,
   });
   statusStore.startAlarm(alarm);
+  insertAlarm(alarm, alarm.alarmId.startsWith('TEST-'));
 
   try {
     // 并行采集实时快照 + 历史告警
@@ -109,21 +112,25 @@ async function processAlarm(alarm: Alarm) {
 
     await notifyOperator(alarm, conclusion);
 
+    const durationMs = Date.now() - t0;
     logger.info('Agent', '告警处理完成', {
       alarmId: alarm.alarmId,
-      durationMs: Date.now() - t0,
+      durationMs,
       conclusionLength: conclusion.length,
     });
     statusStore.finishAlarm(alarm.alarmId, conclusion, false);
+    updateAlarmFinished(alarm.alarmId, conclusion, false, durationMs);
   } catch (err: unknown) {
+    const durationMs = Date.now() - t0;
     const errorMsg = `分析异常: ${(err as Error).message}，请人工介入。`;
     logger.error('Agent', '告警处理发生错误', {
       alarmId: alarm.alarmId,
       error: (err as Error).message,
-      durationMs: Date.now() - t0,
+      durationMs,
     });
     await notifyOperator(alarm, errorMsg);
     statusStore.finishAlarm(alarm.alarmId, errorMsg, true);
+    updateAlarmFinished(alarm.alarmId, errorMsg, true, durationMs);
   }
 }
 
@@ -135,7 +142,9 @@ async function main() {
   logger.info('Agent', '  EMS Agent (Node.js) 启动');
   logger.info('Agent', '═══════════════════════════════════');
 
-  // 1. 测试 LLM API 连通性
+  // 1. 初始化数据库（确保表结构就绪）
+  getDb();
+
   const statusPort = parseInt(process.env['STATUS_PORT'] ?? '3000', 10);
   const apiOk = await checkLLMConnectivity();
   statusStore.setLLMApiStatus(apiOk);

@@ -2,6 +2,63 @@
 
 ---
 
+## 2026-03-30（第十批）— SQLite 数据库持久化
+
+### [新增] `src/db/database.ts`
+SQLite 单例初始化：
+- 数据库文件：`data/ems-agent.db`（自动创建目录）
+- WAL 模式（写性能优化）
+- 建表 `alarm_records`：alarm_id / alarm_type / fault_category / device_id / priority / alarm_timestamp / started_at / finished_at / duration_ms / status / conclusion / is_test
+- 建索引：`started_at DESC`、`status`
+
+### [新增] `src/db/alarmRepository.ts`
+数据仓库，提供 4 个函数：
+- `insertAlarm(alarm, isTest)` — 告警开始时写入（status=processing）
+- `updateAlarmFinished(alarmId, conclusion, isError, durationMs)` — 完成时更新结论/状态/耗时
+- `queryRecentAlarms(limit)` — 查最近 N 条，默认 50
+- `queryAlarmsByRange(startAt, endAt)` — 按时间范围查询
+- `queryStats()` — 返回 total/done/error/processing 统计
+
+### [修改] `src/index.ts`
+- 启动时调用 `getDb()` 确保表结构就绪
+- `processAlarm` 开始时调用 `insertAlarm()`，自动识别 TEST- 前缀标记测试告警
+- 处理完成（成功/失败）均调用 `updateAlarmFinished()` 写入结论和耗时
+
+### [修改] `src/server/statusServer.ts`
+新增数据库查询 API：
+- `GET /api/db/alarms?limit=50` — 查最近 N 条记录
+- `GET /api/db/alarms?start=...&end=...` — 按时间范围查询
+- `GET /api/db/stats` — 返回统计汇总
+
+### [修改] `.gitignore`
+新增 `data/` 排除 SQLite 数据库文件
+
+---
+
+## 2026-03-30（第九批）— QQ 邮箱 SMTP 优化
+
+### [修改] `src/notifier/emailNotifier.ts`
+重写邮件发送器：
+- 新增 `SMTP_SECURE`、`SMTP_FROM_NAME` 环境变量读取
+- 加入 `tls: { rejectUnauthorized: false }` 兼容 QQ 邮箱 SSL 直连
+- 发件人显示为 `"EMS Agent 告警" <xxx@qq.com>` 格式
+- 正文同时发送 `text`（纯文本）和 `html`（带样式卡片）两个版本
+- HTML 正文：暗色标题栏 + 白色内容区 + 换行符自动转 `<br>`，防 XSS 转义
+- 替换全部 `console.*` 为 `logger.*`，抛出异常供 `notifier/index.ts` 捕获并记录
+
+### [修改] `.env`
+- `SMTP_HOST` → `smtp.qq.com`
+- `SMTP_PORT` → `465`，`SMTP_SECURE=true`
+- `SMTP_USER` → `179115024@qq.com`
+- 新增 `SMTP_FROM_NAME=EMS Agent 告警`
+- `SMTP_PASSWORD` 留空，填写 QQ 邮箱「授权码」
+
+### [修改] `.env.example`
+- 新增 QQ / 163 / 企业邮箱三种 SMTP 配置说明
+- 新增 `SMTP_SECURE`、`SMTP_FROM_NAME` 示例
+
+---
+
 ## 2026-03-30（第八批）— 全链路接入真实接口，修复 404
 
 ### [修改] `src/config/thresholds.ts`

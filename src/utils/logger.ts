@@ -14,9 +14,19 @@ function ensureLogDir() {
   }
 }
 
-/** 当天 AI 操作日志路径：logs/ai-ops-YYYY-MM-DD.log */
+/** 返回北京时间字符串：2026-03-30T15:58:00.123+08:00 */
+function nowBeijing(): string {
+  const now = new Date();
+  // UTC+8 偏移量 8 * 60 分钟
+  const offsetMs = 8 * 60 * 60 * 1000;
+  const local    = new Date(now.getTime() + offsetMs);
+  // toISOString 输出 UTC 时间，截掉末尾 Z，手动追加 +08:00
+  return local.toISOString().replace('Z', '+08:00');
+}
+
+/** 当天 AI 操作日志路径（按北京时间日期）：logs/ai-ops-YYYY-MM-DD.log */
 function getLogFile(): string {
-  const date = new Date().toISOString().slice(0, 10);
+  const date = nowBeijing().slice(0, 10);
   return path.join(LOG_DIR, `ai-ops-${date}.log`);
 }
 
@@ -26,12 +36,12 @@ function padModule(mod: string, width = 14): string {
 
 /**
  * 写入一条日志
- * 格式：2026-03-30T14:30:00.000Z [INFO ] [Module        ] message | {"key":"val"}
+ * 格式：2026-03-30T15:58:00.123+08:00 [INFO ] [Module        ] message | {"key":"val"}
  */
 function write(level: LogLevel, module: string, message: string, context?: Record<string, unknown>) {
   ensureLogDir();
 
-  const ts   = new Date().toISOString();
+  const ts   = nowBeijing();
   const lvl  = level.padEnd(5);
   const mod  = padModule(module);
   const ctx  = context ? ' | ' + JSON.stringify(context) : '';

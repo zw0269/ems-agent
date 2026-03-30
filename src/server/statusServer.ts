@@ -1,5 +1,6 @@
 import express from 'express';
 import { statusStore } from './statusStore.js';
+import { queryRecentAlarms, queryAlarmsByRange, queryStats } from '../db/alarmRepository.js';
 import type { AlarmQueue } from '../gateway/alarmQueue.js';
 import type { Alarm } from '../types/index.js';
 import { logger } from '../utils/logger.js';
@@ -352,6 +353,24 @@ export function startStatusServer(port = 3000, alarmQueue?: AlarmQueue) {
 
   app.get('/api/status', (_req, res) => {
     res.json(statusStore.get());
+  });
+
+  // GET /api/db/alarms?limit=50             最近 N 条
+  // GET /api/db/alarms?start=...&end=...    按时间范围查询
+  // GET /api/db/stats                       统计汇总
+  app.get('/api/db/alarms', (_req, res) => {
+    const { limit, start, end } = _req.query as Record<string, string | undefined>;
+    let records;
+    if (start && end) {
+      records = queryAlarmsByRange(start, end);
+    } else {
+      records = queryRecentAlarms(limit ? parseInt(limit, 10) : 50);
+    }
+    res.json({ total: records.length, records });
+  });
+
+  app.get('/api/db/stats', (_req, res) => {
+    res.json(queryStats());
   });
 
   app.post('/api/test-alarm', (req, res) => {
