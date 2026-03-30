@@ -1,5 +1,6 @@
 import { queryBms } from '../tools/queryBms.js';
 import { queryHistory } from '../tools/queryHistory.js';
+import { getHomePage, getBmsYx, getPcsYc, getPcsYx, getDcdcYc, getDcdcYx, getMeterYc, getMeterYx, getRealTimeAlarms, getHistoryAlarms } from '../tools/queryEms.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -23,6 +24,36 @@ export class ToolRouter {
           break;
         case 'queryHistory':
           result = await queryHistory(args);
+          break;
+        case 'getHomePage':
+          result = await getHomePage();
+          break;
+        case 'getBmsYx':
+          result = await getBmsYx();
+          break;
+        case 'getPcsYc':
+          result = await getPcsYc();
+          break;
+        case 'getPcsYx':
+          result = await getPcsYx();
+          break;
+        case 'getDcdcYc':
+          result = await getDcdcYc(args);
+          break;
+        case 'getDcdcYx':
+          result = await getDcdcYx(args);
+          break;
+        case 'getMeterYc':
+          result = await getMeterYc(args);
+          break;
+        case 'getMeterYx':
+          result = await getMeterYx(args);
+          break;
+        case 'getRealTimeAlarms':
+          result = await getRealTimeAlarms();
+          break;
+        case 'getHistoryAlarms':
+          result = await getHistoryAlarms(args);
           break;
         default:
           throw new Error(`未知工具: ${toolName}`);
