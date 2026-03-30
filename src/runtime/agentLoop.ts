@@ -14,7 +14,7 @@ import { logger } from '../utils/logger.js';
 export class AgentLoop {
   private llm: LLMClient;
   private toolRouter: ToolRouter;
-  private maxIterations = 10;
+  private maxIterations = 30;
 
   constructor() {
     this.llm = new LLMClient();

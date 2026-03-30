@@ -399,7 +399,7 @@ export function startStatusServer(port = 3000, alarmQueue?: AlarmQueue) {
       alarmType:     alarmType.trim(),
       faultCategory: validCategories.includes(faultCategory ?? '') ? (faultCategory as 'hardware' | 'software') : 'software',
       deviceId:      (deviceId ?? 'unknown').trim() || 'unknown',
-      timestamp:     new Date().toISOString(),
+      timestamp:     new Date(Date.now() + 8 * 3600000).toISOString().replace('Z', '+08:00'),
       priority:      validPriorities.includes(priority ?? '') ? (priority as 'P0' | 'P1' | 'P2' | 'P3') : 'P2',
     };
 

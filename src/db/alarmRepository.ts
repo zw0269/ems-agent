@@ -24,6 +24,24 @@ function nowBeijing(): string {
 }
 
 /**
+ * 将任意时间字符串统一转为北京时间格式 YYYY-MM-DDTHH:mm:ss.sss+08:00
+ * 支持：
+ *   - ISO UTC 字符串（2026-03-30T08:27:19.967Z）
+ *   - 已有 +08:00 的字符串（直接返回）
+ *   - 无时区的字符串（2026-03-29 11:23:27，视为北京时间）
+ */
+function toBeijingTimestamp(raw: string): string {
+  if (raw.includes('+08:00')) return raw;
+  // "YYYY-MM-DD HH:mm:ss" → 视为北京时间，补 +08:00
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(raw)) {
+    return raw.replace(' ', 'T') + '+08:00';
+  }
+  // UTC ISO 字符串 → 转换偏移
+  const offsetMs = 8 * 60 * 60 * 1000;
+  return new Date(new Date(raw).getTime() + offsetMs).toISOString().replace('Z', '+08:00');
+}
+
+/**
  * 告警开始处理时写入记录（status = processing）
  */
 export function insertAlarm(alarm: Alarm, isTest = false): void {
@@ -40,7 +58,7 @@ export function insertAlarm(alarm: Alarm, isTest = false): void {
       fault_category:  alarm.faultCategory,
       device_id:       alarm.deviceId,
       priority:        alarm.priority,
-      alarm_timestamp: alarm.timestamp,
+      alarm_timestamp: toBeijingTimestamp(alarm.timestamp),
       started_at:      nowBeijing(),
       is_test:         isTest ? 1 : 0,
     });
