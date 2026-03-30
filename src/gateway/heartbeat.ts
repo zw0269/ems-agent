@@ -1,6 +1,8 @@
 import cron from 'node-cron';
 import { fetchAlarms } from '../tools/queryBms.js';
 import { AlarmQueue } from './alarmQueue.js';
+import { statusStore } from '../server/statusStore.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * 心跳轮询
@@ -16,45 +18,43 @@ export class Heartbeat {
     this.intervalSeconds = intervalSeconds;
   }
 
-  /**
-   * 启动轮询
-   * 捕获轮询异常，确保 Heartbeat 不会因单次失败而崩溃
-   */
   start() {
-    // 读取环境变量中的轮询间隔
-    const envInterval = process.env.HEARTBEAT_INTERVAL_SECONDS;
-    if (envInterval) {
-      this.intervalSeconds = parseInt(envInterval, 10);
-    }
+    const envInterval = process.env['HEARTBEAT_INTERVAL_SECONDS'];
+    if (envInterval) this.intervalSeconds = parseInt(envInterval, 10);
 
     const schedule = `*/${this.intervalSeconds} * * * * *`;
-    
+
     this.task = cron.schedule(schedule, async () => {
+      const t0 = Date.now();
+      logger.info('Heartbeat', '开始轮询告警接口');
+
       try {
-        console.log(`[Heartbeat] ${new Date().toISOString()} 开始轮询告警...`);
         const alarms = await fetchAlarms();
-        
-        if (alarms && Array.isArray(alarms)) {
-          console.log(`[Heartbeat] 拉取到 ${alarms.length} 条告警`);
-          for (const alarm of alarms) {
-            this.queue.push(alarm);
-          }
+        const count = Array.isArray(alarms) ? alarms.length : 0;
+
+        for (const alarm of (alarms ?? [])) {
+          this.queue.push(alarm);
         }
-      } catch (err) {
-        console.error('[Heartbeat] 拉取告警失败:', (err as Error).message);
+
+        logger.info('Heartbeat', '轮询完成', {
+          alarmCount: count,
+          durationMs: Date.now() - t0,
+        });
+        statusStore.recordHeartbeat(count, true);
+      } catch (err: unknown) {
+        const msg = (err as Error).message;
+        logger.error('Heartbeat', '轮询失败', { error: msg, durationMs: Date.now() - t0 });
+        statusStore.recordHeartbeat(0, false, msg);
       }
     });
 
-    console.log(`[Heartbeat] 启动，轮询间隔 ${this.intervalSeconds}s`);
+    logger.info('Heartbeat', 'Heartbeat 启动', { intervalSeconds: this.intervalSeconds });
   }
 
-  /**
-   * 停止轮询
-   */
   stop() {
     if (this.task) {
       this.task.stop();
-      console.log('[Heartbeat] 已停止');
+      logger.info('Heartbeat', 'Heartbeat 已停止');
     }
   }
 }
