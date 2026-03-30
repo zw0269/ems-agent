@@ -3,17 +3,66 @@ import { Heartbeat } from './gateway/heartbeat.js';
 import { AlarmQueue } from './gateway/alarmQueue.js';
 import { SessionManager } from './gateway/sessionManager.js';
 import { AgentLoop } from './runtime/agentLoop.js';
-import { getFields } from './config/fieldMap.js';
 import { checkThresholds } from './config/thresholds.js';
 import { ALARM_PRIORITY } from './config/alarmPriority.js';
-import { queryBms } from './tools/queryBms.js';
-import { queryHistory } from './tools/queryHistory.js';
+import { getHomePage, getBmsYx, getPcsYc, getPcsYx, getHistoryAlarms } from './tools/queryEms.js';
 import { notifyOperator } from './notifier/index.js';
 import { checkLLMConnectivity } from './utils/healthCheck.js';
 import { startStatusServer } from './server/statusServer.js';
 import { statusStore } from './server/statusStore.js';
 import { logger } from './utils/logger.js';
 import type { Alarm } from './types/index.js';
+
+/**
+ * 采集系统当前实时快照
+ * 并行调用首页、BMS 遥信、PCS 遥测、PCS 遥信，合并为扁平对象供阈值检查和 LLM 分析
+ */
+async function gatherSnapshot(alarm: Alarm) {
+  const [homePage, bmsYx, pcsYc, pcsYx] = await Promise.all([
+    getHomePage(),
+    getBmsYx(),
+    getPcsYc(),
+    getPcsYx(),
+  ]);
+
+  // 将 PCS 遥测列表转为 key→value 扁平对象
+  const pcsYcMap: Record<string, number> = {};
+  for (const item of pcsYc) {
+    pcsYcMap[item.key] = item.value;
+  }
+
+  // 活跃告警 / 故障点汇总（仅 value===true 的条目）
+  const bmsActiveAlarms = bmsYx.filter(i => i.value === true).map(i => i.keyStr);
+  const pcsActiveFaults = pcsYx.filter(i => i.value === true && i.sort === 1).map(i => i.keyStr);
+  const pcsActiveAlarms = pcsYx.filter(i => i.value === true && i.sort === 2).map(i => i.keyStr);
+
+  const realtime: Record<string, unknown> = {
+    // HomePageData 全部字段（包含 batterySOC、batteryVoltage、gridFrequency 等）
+    ...homePage,
+    // PCS 遥测扁平字段（包含 gridFrequency、pcsInsulationresistance、pcsLeakageCurrent、温度等）
+    ...pcsYcMap,
+    // 结构化告警摘要
+    bmsActiveAlarms,
+    pcsActiveFaults,
+    pcsActiveAlarms,
+    // 元数据
+    timestamp:  new Date().toISOString(),
+    deviceId:   alarm.deviceId,
+  };
+
+  return realtime;
+}
+
+/**
+ * 采集历史告警记录（最近 24 小时）
+ */
+async function gatherHistory(alarm: Alarm) {
+  const now = new Date();
+  const fmt = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 19);
+  const endTime   = fmt(now);
+  const startTime = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+  return getHistoryAlarms({ startTime, endTime });
+}
 
 /**
  * 告警处理核心逻辑
@@ -30,18 +79,20 @@ async function processAlarm(alarm: Alarm) {
   statusStore.startAlarm(alarm);
 
   try {
-    const fields = getFields(alarm.alarmType);
-
+    // 并行采集实时快照 + 历史告警
     const [realtime, history] = await Promise.all([
-      queryBms({ fields, deviceId: alarm.deviceId }),
-      queryHistory({ fields, hours: 24, deviceId: alarm.deviceId }),
+      gatherSnapshot(alarm),
+      gatherHistory(alarm),
     ]);
 
     const violations = checkThresholds(realtime);
+
     logger.info('Agent', '数据采集完成，开始 AI 分析', {
       alarmId: alarm.alarmId,
-      fieldsCount: fields.length,
+      realtimeKeys: Object.keys(realtime).length,
+      historyCount: history.length,
       violationCount: violations.length,
+      violations: violations.map(v => v.message),
     });
 
     const agentLoop = new AgentLoop();
@@ -84,24 +135,24 @@ async function main() {
   logger.info('Agent', '  EMS Agent (Node.js) 启动');
   logger.info('Agent', '═══════════════════════════════════');
 
-  // 1. 启动状态面板
+  // 1. 测试 LLM API 连通性
   const statusPort = parseInt(process.env['STATUS_PORT'] ?? '3000', 10);
-  startStatusServer(statusPort);
-  logger.info('Agent', '状态面板已启动', { port: statusPort });
-
-  // 2. 测试 LLM API 连通性
   const apiOk = await checkLLMConnectivity();
   statusStore.setLLMApiStatus(apiOk);
   if (!apiOk) {
     logger.warn('Agent', 'LLM API 连通测试失败，Agent 仍将运行，告警处理可能失败');
   }
 
-  // 3. 初始化 Gateway
+  // 2. 初始化 Gateway
   const sessionManager = new SessionManager();
   const alarmQueue = new AlarmQueue(sessionManager);
   const heartbeatInterval = parseInt(process.env['HEARTBEAT_INTERVAL_SECONDS'] ?? '30', 10);
   const heartbeat = new Heartbeat(alarmQueue, heartbeatInterval);
   heartbeat.start();
+
+  // 3. 启动状态面板（alarmQueue 就绪后传入，支持手动注入）
+  startStatusServer(statusPort, alarmQueue);
+  logger.info('Agent', '状态面板已启动', { port: statusPort });
 
   // 4. 主消费循环
   setInterval(async () => {

@@ -1,5 +1,8 @@
 import express from 'express';
 import { statusStore } from './statusStore.js';
+import type { AlarmQueue } from '../gateway/alarmQueue.js';
+import type { Alarm } from '../types/index.js';
+import { logger } from '../utils/logger.js';
 
 const DASHBOARD_HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -70,6 +73,36 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   .conclusion { color: var(--muted); font-size: 12px; max-width: 300px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .empty { text-align: center; color: var(--muted); padding: 32px; }
+
+  /* 测试面板 */
+  .test-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 24px;
+  }
+  .test-panel .section-title { margin-bottom: 16px; color: var(--yellow); }
+  .test-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; align-items: end; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .form-group input, .form-group select {
+    background: #12141f; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 8px 12px; font-size: 13px; outline: none;
+    transition: border-color .15s;
+  }
+  .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
+  .btn-submit {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 9px 20px; font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: opacity .15s; white-space: nowrap;
+  }
+  .btn-submit:hover { opacity: .85; }
+  .btn-submit:disabled { opacity: .4; cursor: not-allowed; }
+  .test-result {
+    margin-top: 12px; padding: 10px 14px; border-radius: 8px;
+    font-size: 12px; display: none;
+  }
+  .test-result.ok  { background: rgba(34,197,94,.1);  color: var(--green); border: 1px solid rgba(34,197,94,.3);  }
+  .test-result.err { background: rgba(239,68,68,.1);  color: var(--red);   border: 1px solid rgba(239,68,68,.3);  }
+
   @media (max-width: 768px) { .info-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -94,6 +127,42 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
       <div class="section-title">心跳 / 轮询</div>
       <div id="heartbeat-info"></div>
     </div>
+  </div>
+
+  <!-- 手动测试告警 -->
+  <div class="test-panel">
+    <div class="section-title">🧪 手动注入测试告警</div>
+    <div class="test-form">
+      <div class="form-group">
+        <label>告警类型 (alarmType)</label>
+        <input id="f-type" type="text" placeholder="如：VF 离网状态" value="VF 离网状态" />
+      </div>
+      <div class="form-group">
+        <label>故障分类</label>
+        <select id="f-category">
+          <option value="software">software（软件/电气）</option>
+          <option value="hardware">hardware（硬件）</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>设备 ID</label>
+        <input id="f-device" type="text" placeholder="如：Pcs" value="Pcs" />
+      </div>
+      <div class="form-group">
+        <label>优先级</label>
+        <select id="f-priority">
+          <option value="P0">P0 紧急</option>
+          <option value="P1">P1 重要</option>
+          <option value="P2" selected>P2 一般</option>
+          <option value="P3">P3 提示</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>&nbsp;</label>
+        <button class="btn-submit" id="btn-inject" onclick="injectAlarm()">注入告警</button>
+      </div>
+    </div>
+    <div class="test-result" id="test-result"></div>
   </div>
 
   <!-- 告警历史 -->
@@ -130,6 +199,48 @@ function priorityTag(p) {
 function statusTag(s) {
   const map = { done: '完成', error: '错误', processing: '处理中' };
   return '<span class="tag tag-' + s + '">' + (map[s] || s) + '</span>';
+}
+
+async function injectAlarm() {
+  const btn = document.getElementById('btn-inject');
+  const result = document.getElementById('test-result');
+  const alarmType = document.getElementById('f-type').value.trim();
+  if (!alarmType) { showResult('error', '告警类型不能为空'); return; }
+
+  btn.disabled = true;
+  btn.textContent = '注入中…';
+  result.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/test-alarm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        alarmType,
+        faultCategory: document.getElementById('f-category').value,
+        deviceId:      document.getElementById('f-device').value.trim() || 'unknown',
+        priority:      document.getElementById('f-priority').value,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showResult('ok', '✓ 告警已注入队列，alarmId: ' + data.alarmId + '，等待 Agent 处理…');
+    } else {
+      showResult('err', '✗ ' + (data.error || '注入失败'));
+    }
+  } catch (e) {
+    showResult('err', '✗ 网络错误: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '注入告警';
+  }
+}
+
+function showResult(type, msg) {
+  const el = document.getElementById('test-result');
+  el.className = 'test-result ' + (type === 'ok' ? 'ok' : 'err');
+  el.textContent = msg;
+  el.style.display = 'block';
 }
 
 async function refresh() {
@@ -226,11 +337,13 @@ setInterval(refresh, 5000);
 
 /**
  * HTTP 状态服务器
- * GET /           → Dashboard HTML（每 5s 自动刷新）
- * GET /api/status → JSON 状态数据
+ * GET  /              → Dashboard HTML（每 5s 自动刷新）
+ * GET  /api/status    → JSON 状态数据
+ * POST /api/test-alarm → 手动注入测试告警到队列
  */
-export function startStatusServer(port = 3000) {
+export function startStatusServer(port = 3000, alarmQueue?: AlarmQueue) {
   const app = express();
+  app.use(express.json());
 
   app.get('/', (_req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -241,7 +354,50 @@ export function startStatusServer(port = 3000) {
     res.json(statusStore.get());
   });
 
+  app.post('/api/test-alarm', (req, res) => {
+    if (!alarmQueue) {
+      res.status(503).json({ error: '告警队列尚未就绪' });
+      return;
+    }
+
+    const { alarmType, faultCategory, deviceId, priority } = req.body as {
+      alarmType?: string;
+      faultCategory?: string;
+      deviceId?: string;
+      priority?: string;
+    };
+
+    if (!alarmType) {
+      res.status(400).json({ error: 'alarmType 不能为空' });
+      return;
+    }
+
+    const validCategories = ['hardware', 'software'];
+    const validPriorities = ['P0', 'P1', 'P2', 'P3'];
+
+    const alarm: Alarm = {
+      alarmId:       `TEST-${Date.now()}`,
+      alarmType:     alarmType.trim(),
+      faultCategory: validCategories.includes(faultCategory ?? '') ? (faultCategory as 'hardware' | 'software') : 'software',
+      deviceId:      (deviceId ?? 'unknown').trim() || 'unknown',
+      timestamp:     new Date().toISOString(),
+      priority:      validPriorities.includes(priority ?? '') ? (priority as 'P0' | 'P1' | 'P2' | 'P3') : 'P2',
+    };
+
+    alarmQueue.push(alarm);
+
+    logger.info('StatusServer', '手动注入测试告警', {
+      alarmId: alarm.alarmId,
+      alarmType: alarm.alarmType,
+      faultCategory: alarm.faultCategory,
+      deviceId: alarm.deviceId,
+      priority: alarm.priority,
+    });
+
+    res.json({ ok: true, alarmId: alarm.alarmId });
+  });
+
   app.listen(port, () => {
-    console.log(`[StatusServer] 状态面板已启动: http://localhost:${port}`);
+    logger.info('StatusServer', `状态面板已启动: http://localhost:${port}`);
   });
 }

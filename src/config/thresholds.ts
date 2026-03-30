@@ -1,51 +1,51 @@
-import type { TelemetryData, Violation } from '../types/index.js';
+import type { Violation } from '../types/index.js';
 
 /**
- * 正常运行阈值定义 (NORMAL_THRESHOLDS)
- * 参考储能系统磷酸铁锂电池标准手册
+ * 正常运行阈值（字段名对应真实 API 返回的 key）
+ * HomePageData 字段：batterySOC, batteryVoltage, batteryCurrent
+ * PCS yc 字段：gridFrequency, pcsInsulationresistance, pcsLeakageCurrent
  */
-export const NORMAL_THRESHOLDS = {
-  'bms_max_cell_voltage': { max: 3.65, min: 2.8, unit: 'V' },
-  'bms_min_cell_voltage': { max: 3.65, min: 2.8, unit: 'V' },
-  'bms_max_temp': { max: 55, min: 0, unit: '℃' },
-  'bms_min_temp': { max: 55, min: 0, unit: '℃' },
-  'bms_soc': { max: 100, min: 5, unit: '%' },
-  'bms_insulation_res': { min: 100, unit: 'kΩ' },
-  'pcs_dc_voltage': { max: 1000, min: 600, unit: 'V' },
-  'pcs_grid_freq': { max: 50.5, min: 49.5, unit: 'Hz' },
+export const NORMAL_THRESHOLDS: Record<string, { max?: number; min?: number; unit: string }> = {
+  // BMS
+  batterySOC:            { min: 5,    max: 100,  unit: '%'  },
+  batteryVoltage:        { min: 700,  max: 1050, unit: 'V'  },
+  // PCS 遥测（来自 getPcsYc）
+  gridFrequency:         { min: 49.5, max: 50.5, unit: 'Hz' },
+  pcsInsulationresistance: { min: 100,           unit: 'kΩ' },
+  pcsLeakageCurrent:     {            max: 1.0,  unit: 'A'  },
+  // 温度
+  pcsOutletAirTemp:      {            max: 75,   unit: '℃'  },
+  pcsTempPhaseA:         {            max: 80,   unit: '℃'  },
+  pcsTempPhaseB:         {            max: 80,   unit: '℃'  },
+  pcsTempPhaseC:         {            max: 80,   unit: '℃'  },
+  moduleTemperatureMax:  {            max: 60,   unit: '℃'  },
 };
 
 /**
- * 确定性阈值检测
- * 越界数据标注时间，不走 LLM，直接输出结果
+ * 检查实时快照中的越限项
+ * 输入为由真实 API 数据构建的扁平对象
  */
-export function checkThresholds(realtime: TelemetryData): Violation[] {
+export function checkThresholds(realtime: Record<string, unknown>): Violation[] {
   const violations: Violation[] = [];
-  const timestamp = realtime.timestamp || new Date().toISOString();
+  const timestamp = (realtime['timestamp'] as string | undefined) ?? new Date().toISOString();
 
   for (const [key, threshold] of Object.entries(NORMAL_THRESHOLDS)) {
     const val = realtime[key];
-    if (val === undefined || val === null) continue;
+    if (val === undefined || val === null || typeof val !== 'number') continue;
 
     let isViolation = false;
     let message = '';
 
-    if ('max' in threshold && val > threshold.max) {
+    if (threshold.max !== undefined && val > threshold.max) {
       isViolation = true;
       message = `${key} (${val}${threshold.unit}) 超过上限 ${threshold.max}${threshold.unit}`;
-    } else if ('min' in threshold && val < threshold.min) {
+    } else if (threshold.min !== undefined && val < threshold.min) {
       isViolation = true;
       message = `${key} (${val}${threshold.unit}) 低于下限 ${threshold.min}${threshold.unit}`;
     }
 
     if (isViolation) {
-      violations.push({
-        field: key,
-        value: val,
-        threshold,
-        message,
-        timestamp
-      });
+      violations.push({ field: key, value: val, threshold, message, timestamp });
     }
   }
 

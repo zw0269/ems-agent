@@ -2,6 +2,56 @@
 
 ---
 
+## 2026-03-30（第八批）— 全链路接入真实接口，修复 404
+
+### [修改] `src/config/thresholds.ts`
+完全重写，字段名改为真实 API 的 key：
+- `batterySOC`（5%~100%）、`batteryVoltage`（700~1050V）— 来自 HomePageData
+- `gridFrequency`（49.5~50.5Hz）、`pcsInsulationresistance`（≥100kΩ）、`pcsLeakageCurrent`（≤1A）— 来自 PCS yc
+- 温度：`pcsOutletAirTemp`（≤75℃）、`pcsTempPhaseA/B/C`（≤80℃）、`moduleTemperatureMax`（≤60℃）
+- `checkThresholds` 参数类型改为 `Record<string, unknown>`，增加 `typeof val !== 'number'` 守卫
+
+### [修改] `src/tools/queryHistory.ts`
+彻底替换占位接口 `/api/history`（404）：
+- 改为调用 `getHistoryAlarms({ startTime, endTime })`
+- `hours` 参数换算为绝对时间范围传给真实接口
+- 支持 `deviceId` 过滤：按 `deviceType` 模糊匹配
+
+### [修改] `src/index.ts`
+重写 `processAlarm` 数据采集层，完全移除假接口调用：
+- 新增 `gatherSnapshot(alarm)`：并行调用 `getHomePage` + `getBmsYx` + `getPcsYc` + `getPcsYx`，合并为扁平 `realtime` 对象
+  - PCS yc 数组转换为 `key→value` map 合并入快照
+  - 附加 `bmsActiveAlarms`、`pcsActiveFaults`、`pcsActiveAlarms` 摘要数组
+- 新增 `gatherHistory(alarm)`：调用 `getHistoryAlarms` 获取最近 24h 历史告警
+- `processAlarm` 并行执行 `gatherSnapshot` + `gatherHistory`，再调用 `checkThresholds`
+- 移除 `getFields`、`queryBms`、`queryHistory` 的直接调用（改由 ToolRouter 按需调用）
+- 日志中增加 `realtimeKeys`、`historyCount`、`violations` 详情
+
+---
+
+## 2026-03-30（第七批）
+
+### [修改] `src/tools/queryBms.ts`
+修复 `fetchAlarms` 404 问题：
+- 原来调用不存在的 `/api/alarms`，改为真实接口 `/grid-ems/AlarmAndEvent/realTimeAlarm/list`
+- 新增 `toFaultCategory()`：BMS/DCDC → hardware，PCS/Meter → software
+- 新增 `toAlarmPriority()`：告警 level 字符串 → P0-P3
+- 将 `AlarmItem` 转换为 Agent 内部 `Alarm` 格式，全程 logger 记录
+- `queryBms` 替换 `console.*` 为 `logger.*`
+
+### [修改] `src/server/statusServer.ts`
+新增手动测试告警功能：
+- `startStatusServer(port, alarmQueue?)` 新增可选 `AlarmQueue` 参数
+- 新增 `POST /api/test-alarm` 接口，接收 `{ alarmType, faultCategory, deviceId, priority }` 并 push 到队列
+- 生成 `TEST-{timestamp}` 格式的 alarmId，参数校验 + logger 记录
+- HTML 面板新增"手动注入测试告警"区域，含表单（告警类型/故障分类/设备ID/优先级）和提交按钮
+- 注入成功/失败均有行内反馈提示
+
+### [修改] `src/index.ts`
+- `startStatusServer` 调用移至 Gateway 初始化之后，传入 `alarmQueue` 实例
+
+---
+
 ## 2026-03-30（第六批）
 
 ### [修改] `src/types/index.ts`

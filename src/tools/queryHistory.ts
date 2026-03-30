@@ -1,25 +1,31 @@
-import axios from 'axios';
-import type { TelemetryData } from '../types/index.js';
-
-const EMS_BASE_URL = process.env['EMS_BASE_URL'] ?? 'http://localhost:8080';
+import { getHistoryAlarms } from './queryEms.js';
+import { logger } from '../utils/logger.js';
 
 /**
- * 调通历史接口，打印返回值
- * 确认历史数据接口 URL 和时间参数格式
+ * 查询历史告警记录（替代原占位 /api/history 接口）
+ * 根据 hours 参数计算时间范围，调用真实历史告警接口
  */
-export async function queryHistory(args: { fields: string[]; hours: number; deviceId?: string }): Promise<TelemetryData[]> {
-  try {
-    const response = await axios.get(`${EMS_BASE_URL}/api/history`, {
-      params: {
-        fields: args.fields.join(','),
-        hours: args.hours,
-        deviceId: args.deviceId,
-      },
-    });
-    console.log('[Tools] queryHistory 返回值:', JSON.stringify(response.data, null, 2));
-    return response.data;
-  } catch (error: unknown) {
-    console.error('[Tools] queryHistory 失败:', (error as Error).message);
-    throw error;
+export async function queryHistory(args: { fields?: string[]; hours?: number; deviceId?: string }) {
+  const hours = args.hours ?? 24;
+  const now = new Date();
+  const fmt = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 19);
+  const endTime   = fmt(now);
+  const startTime = fmt(new Date(now.getTime() - hours * 60 * 60 * 1000));
+
+  logger.info('QueryHistory', '查询历史告警（替代历史遥测）', {
+    hours,
+    startTime,
+    endTime,
+    deviceId: args.deviceId,
+  });
+
+  const alarms = await getHistoryAlarms({ startTime, endTime });
+
+  // 若指定了 deviceId，按 deviceType 过滤
+  if (args.deviceId) {
+    return alarms.filter(a =>
+      a.deviceType.toLowerCase().includes(args.deviceId!.toLowerCase())
+    );
   }
+  return alarms;
 }
