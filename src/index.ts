@@ -13,6 +13,7 @@ import { statusStore } from './server/statusStore.js';
 import { logger } from './utils/logger.js';
 import { getDb } from './db/database.js';
 import { insertAlarm, updateAlarmFinished } from './db/alarmRepository.js';
+import { insertRealtimeSnapshot } from './db/realtimeSnapshotRepository.js';
 import type { Alarm } from './types/index.js';
 
 /**
@@ -89,6 +90,7 @@ async function processAlarm(alarm: Alarm) {
     ]);
 
     const violations = checkThresholds(realtime);
+    insertRealtimeSnapshot(alarm.alarmId, realtime);
 
     logger.info('Agent', '数据采集完成，开始 AI 分析', {
       alarmId: alarm.alarmId,

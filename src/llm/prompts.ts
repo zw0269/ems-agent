@@ -1,3 +1,27 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import type { Alarm } from '../types/index.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../');
+const SELF_IMPROVEMENT_PATH = path.join(ROOT, 'self-improvement.md');
+
+/**
+ * 读取 self-improvement.md，每次调用时重新读取（热加载，无需重启）
+ */
+function loadSelfImprovementMd(): string {
+  try {
+    if (!fs.existsSync(SELF_IMPROVEMENT_PATH)) return '';
+    const content = fs.readFileSync(SELF_IMPROVEMENT_PATH, 'utf8').trim();
+    // 去掉只有标题注释的空文件
+    const lines = content.split('\n').filter(l => !l.startsWith('#') && l.trim() !== '---' && l.trim() !== '');
+    if (!lines.length) return '';
+    return `\n\n【历史经验与自我改进积累】\n${content}`;
+  } catch {
+    return '';
+  }
+}
+
 /**
  * 硬件故障分析系统提示词
  * 硬件故障：单次 LLM 调用，不进循环
@@ -46,10 +70,11 @@ export const SOFTWARE_SYSTEM_PROMPT = `
 `;
 
 export function buildSystemPrompt(faultCategory: string): string {
+  const improvement = loadSelfImprovementMd();
   if (faultCategory === 'hardware') {
-    return HARDWARE_SYSTEM_PROMPT;
+    return HARDWARE_SYSTEM_PROMPT + improvement;
   }
-  return SOFTWARE_SYSTEM_PROMPT;
+  return SOFTWARE_SYSTEM_PROMPT + improvement;
 }
 
 export function buildUserMessage(alarm: any, initialData: any): string {
@@ -65,4 +90,44 @@ ID: ${alarm.alarmId}
 实时遥测: ${JSON.stringify(initialData.realtime, null, 2)}
 历史趋势 (24h): ${JSON.stringify(initialData.history, null, 2)}
   `.trim();
+}
+
+// ─── 自我反思（Self-Reflection）提示词 ────────────────────────────────────────
+
+export const SELF_REFLECTION_SYSTEM_PROMPT = `
+你是一个 AI 分析质量改进专家。请基于本次告警处理过程，提出可以提升未来分析质量的具体改进建议。
+
+请从以下维度评估并给出改进意见：
+1. 提示词与领域知识是否完整、准确？
+2. 推理逻辑是否严密，是否遗漏关键数据点？
+3. 工具调用顺序和选择是否最优？
+4. 最终结论的准确性和可操作性如何？
+5. 是否有可以预置的典型故障模式知识？
+
+输出格式：简洁的 Markdown 列表（不超过 5 条），每条以 "- " 开头，具体可操作，避免空泛。
+`.trim();
+
+export function buildSelfReflectionPrompt(
+  alarm: Alarm,
+  conclusion: string,
+  iterationCount: number,
+): { system: string; user: string } {
+  return {
+    system: SELF_REFLECTION_SYSTEM_PROMPT,
+    user: `
+【本次处理的告警】
+ID: ${alarm.alarmId}
+类型: ${alarm.alarmType}
+设备: ${alarm.deviceId}
+故障分类: ${alarm.faultCategory}
+优先级: ${alarm.priority}
+
+【Agent 给出的最终结论】
+${conclusion}
+
+【本次分析迭代次数】${iterationCount}
+
+请基于以上信息，提出具体的改进建议，帮助未来的告警分析更加准确、高效。
+    `.trim(),
+  };
 }

@@ -1,6 +1,12 @@
 import express from 'express';
 import { statusStore } from './statusStore.js';
 import { queryRecentAlarms, queryAlarmsByRange, queryStats } from '../db/alarmRepository.js';
+import { queryRecentLlmCalls, queryLlmCallsByAlarm } from '../db/llmCallRepository.js';
+import {
+  queryPendingSelfImprovements,
+  queryRecentSelfImprovements,
+  updateSelfImprovementFeedback,
+} from '../db/selfImprovementRepository.js';
 import type { AlarmQueue } from '../gateway/alarmQueue.js';
 import type { Alarm } from '../types/index.js';
 import { logger } from '../utils/logger.js';
@@ -105,6 +111,32 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   .test-result.err { background: rgba(239,68,68,.1);  color: var(--red);   border: 1px solid rgba(239,68,68,.3);  }
 
   @media (max-width: 768px) { .info-grid { grid-template-columns: 1fr; } }
+
+  /* 自我改进建议面板 */
+  .suggestion-card {
+    background: #12141f; border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px; margin-bottom: 10px;
+  }
+  .suggestion-meta { color: var(--muted); font-size: 11px; margin-bottom: 8px; }
+  .suggestion-text { font-size: 13px; line-height: 1.7; white-space: pre-wrap; margin-bottom: 10px; }
+  .suggestion-actions { display: flex; gap: 8px; align-items: center; }
+  .btn-accept {
+    background: rgba(34,197,94,.15); color: var(--green);
+    border: 1px solid rgba(34,197,94,.3); border-radius: 6px;
+    padding: 5px 14px; cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .btn-reject {
+    background: rgba(239,68,68,.1); color: var(--red);
+    border: 1px solid rgba(239,68,68,.3); border-radius: 6px;
+    padding: 5px 14px; cursor: pointer; font-size: 12px;
+  }
+  .btn-accept:hover { background: rgba(34,197,94,.3); }
+  .btn-reject:hover { background: rgba(239,68,68,.25); }
+  .suggestion-note {
+    flex: 1; background: #12141f; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 5px 10px; font-size: 12px; outline: none;
+  }
+  .suggestion-note:focus { border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -164,6 +196,12 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
       </div>
     </div>
     <div class="test-result" id="test-result"></div>
+  </div>
+
+  <!-- AI 自我改进建议 -->
+  <div class="test-panel" style="border-color: var(--blue); margin-bottom: 24px;">
+    <div class="section-title" style="color: var(--blue)">💡 AI 自我改进建议</div>
+    <div id="suggestions-list"><div class="empty">加载中…</div></div>
   </div>
 
   <!-- 告警历史 -->
@@ -330,8 +368,75 @@ async function refresh() {
   }
 }
 
+// ─── 自我改进建议 ────────────────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+async function loadSuggestions() {
+  try {
+    const res = await fetch('/api/self-improvements?pending=true');
+    const d = await res.json();
+    const el = document.getElementById('suggestions-list');
+    if (!d.records || !d.records.length) {
+      el.innerHTML = '<div class="empty">暂无待处理改进建议</div>';
+      return;
+    }
+    el.innerHTML = d.records.map(s => \`
+      <div class="suggestion-card" id="suggestion-\${s.id}">
+        <div class="suggestion-meta">
+          告警 ID: <strong>\${escHtml(s.alarm_id)}</strong>
+          &nbsp;·&nbsp; \${fmt(s.created_at)}
+        </div>
+        <div class="suggestion-text">\${escHtml(s.suggestion_text)}</div>
+        <div class="suggestion-actions">
+          <input class="suggestion-note" id="note-\${s.id}" type="text" placeholder="可选：添加备注说明…" />
+          <button class="btn-accept" onclick="submitFeedback(\${s.id}, 'accepted')">✓ 接受并写入改进记录</button>
+          <button class="btn-reject" onclick="submitFeedback(\${s.id}, 'rejected')">✗ 忽略</button>
+        </div>
+      </div>
+    \`).join('');
+  } catch(e) {
+    const el = document.getElementById('suggestions-list');
+    if (el) el.innerHTML = '<div class="empty" style="color:var(--red)">加载失败: ' + e.message + '</div>';
+  }
+}
+
+async function submitFeedback(id, feedback) {
+  const noteEl = document.getElementById('note-' + id);
+  const note = noteEl ? noteEl.value.trim() : '';
+  try {
+    const res = await fetch('/api/self-improvements/' + id + '/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feedback, note: note || undefined }),
+    });
+    if (res.ok) {
+      const card = document.getElementById('suggestion-' + id);
+      if (card) {
+        card.style.opacity = '0.4';
+        card.style.pointerEvents = 'none';
+        card.querySelector('.suggestion-actions').innerHTML =
+          feedback === 'accepted'
+            ? '<span style="color:var(--green);font-size:12px">✓ 已接受并写入 self-improvement.md</span>'
+            : '<span style="color:var(--muted);font-size:12px">已忽略</span>';
+      }
+      // 延迟移除卡片
+      setTimeout(() => { const c = document.getElementById('suggestion-' + id); if(c) c.remove(); }, 2000);
+    }
+  } catch(e) {
+    alert('提交反馈失败: ' + e.message);
+  }
+}
+
 refresh();
+loadSuggestions();
 setInterval(refresh, 5000);
+setInterval(loadSuggestions, 10000);
 </script>
 </body>
 </html>`;
@@ -371,6 +476,48 @@ export function startStatusServer(port = 3000, alarmQueue?: AlarmQueue) {
 
   app.get('/api/db/stats', (_req, res) => {
     res.json(queryStats());
+  });
+
+  // GET /api/llm-calls?limit=50&alarmId=xxx
+  app.get('/api/llm-calls', (_req, res) => {
+    const { limit, alarmId } = _req.query as Record<string, string | undefined>;
+    let records;
+    if (alarmId) {
+      records = queryLlmCallsByAlarm(alarmId);
+    } else {
+      records = queryRecentLlmCalls(limit ? parseInt(limit, 10) : 50);
+    }
+    res.json({ total: records.length, records });
+  });
+
+  // GET /api/self-improvements?pending=true
+  app.get('/api/self-improvements', (_req, res) => {
+    const { pending } = _req.query as Record<string, string | undefined>;
+    const records = pending === 'true'
+      ? queryPendingSelfImprovements()
+      : queryRecentSelfImprovements(50);
+    res.json({ total: records.length, records });
+  });
+
+  // POST /api/self-improvements/:id/feedback  body: { feedback: 'accepted'|'rejected', note?: string }
+  app.post('/api/self-improvements/:id/feedback', (req, res) => {
+    const id = parseInt(req.params['id'] ?? '', 10);
+    if (isNaN(id)) {
+      res.status(400).json({ error: 'id 必须为整数' });
+      return;
+    }
+    const { feedback, note } = req.body as { feedback?: string; note?: string };
+    if (feedback !== 'accepted' && feedback !== 'rejected') {
+      res.status(400).json({ error: 'feedback 必须为 accepted 或 rejected' });
+      return;
+    }
+    try {
+      updateSelfImprovementFeedback(id, feedback, note);
+      logger.info('StatusServer', '用户提交改进建议反馈', { id, feedback, hasNote: !!note });
+      res.json({ ok: true });
+    } catch (err: unknown) {
+      res.status(500).json({ error: (err as Error).message });
+    }
   });
 
   app.post('/api/test-alarm', (req, res) => {

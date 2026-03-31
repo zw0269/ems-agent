@@ -2,9 +2,10 @@ import { LLMClient } from '../llm/client.js';
 import { ToolRouter } from './toolRouter.js';
 import { ContextManager } from './contextManager.js';
 import type { Alarm, LLMResponse } from '../types/index.js';
-import { buildSystemPrompt, buildUserMessage } from '../llm/prompts.js';
+import { buildSystemPrompt, buildUserMessage, buildSelfReflectionPrompt } from '../llm/prompts.js';
 import { TOOLS_DEFINITION } from '../tools/index.js';
 import { logger } from '../utils/logger.js';
+import { insertSelfImprovement } from '../db/selfImprovementRepository.js';
 
 /**
  * Agent 运行时核心
@@ -37,7 +38,11 @@ export class AgentLoop {
     ctx.addSystem(buildSystemPrompt('hardware'));
     ctx.addUser(buildUserMessage(alarm, { realtime, history, violations }));
 
-    const response: LLMResponse = await this.llm.call(ctx.get());
+    const response: LLMResponse = await this.llm.call(
+      ctx.get(),
+      undefined,
+      { alarmId: alarm.alarmId, callIndex: 0 },
+    );
     const conclusion = response.text ?? '[Agent] 未能生成硬件分析报告。';
 
     logger.info('AgentLoop', '硬件故障分析完成', {
@@ -45,6 +50,8 @@ export class AgentLoop {
       conclusionLength: conclusion.length,
       durationMs: Date.now() - t0,
     });
+
+    await this.runSelfReflection(alarm, conclusion, 1);
 
     return conclusion;
   }
@@ -75,7 +82,11 @@ export class AgentLoop {
         iteration: i + 1,
       });
 
-      const response: LLMResponse = await this.llm.call(ctx.get(), TOOLS_DEFINITION);
+      const response: LLMResponse = await this.llm.call(
+        ctx.get(),
+        TOOLS_DEFINITION,
+        { alarmId: alarm.alarmId, callIndex: i },
+      );
 
       if (response.type === 'final_answer') {
         const conclusion = response.text ?? '[Agent] 分析完成，但未返回具体结论。';
@@ -85,6 +96,9 @@ export class AgentLoop {
           conclusionLength: conclusion.length,
           durationMs: Date.now() - t0,
         });
+
+        await this.runSelfReflection(alarm, conclusion, i + 1);
+
         return conclusion;
       }
 
@@ -111,6 +125,43 @@ export class AgentLoop {
       maxIterations: this.maxIterations,
       durationMs: Date.now() - t0,
     });
+
+    await this.runSelfReflection(alarm, fallback, this.maxIterations);
+
     return fallback;
+  }
+
+  /**
+   * 自我反思：告警处理完成后，让 LLM 对本次分析过程提出改进建议
+   * 建议保存到数据库，供用户在 Web UI 审阅和反馈
+   * 此方法内部不抛出异常，失败仅记录日志
+   */
+  private async runSelfReflection(alarm: Alarm, conclusion: string, iterationCount: number): Promise<void> {
+    try {
+      const { system, user } = buildSelfReflectionPrompt(alarm, conclusion, iterationCount);
+      const reflCtx = new ContextManager();
+      reflCtx.addSystem(system);
+      reflCtx.addUser(user);
+
+      const response: LLMResponse = await this.llm.call(
+        reflCtx.get(),
+        undefined,
+        { alarmId: alarm.alarmId, callIndex: -1 },
+      );
+
+      const suggestion = response.text?.trim() ?? '';
+      if (suggestion) {
+        insertSelfImprovement(alarm.alarmId, suggestion);
+        logger.info('AgentLoop', '已保存 AI 自我改进建议', {
+          alarmId: alarm.alarmId,
+          suggestionLength: suggestion.length,
+        });
+      }
+    } catch (err: unknown) {
+      logger.warn('AgentLoop', '自我反思调用失败（不影响主流程）', {
+        alarmId: alarm.alarmId,
+        error: (err as Error).message,
+      });
+    }
   }
 }

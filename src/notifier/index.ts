@@ -40,8 +40,8 @@ export async function notifyOperator(alarm: Alarm, conclusion: string) {
     }
   }
 
-  // P0 / P1 → 钉钉（双推）
-  if (['P0', 'P1'].includes(alarm.priority) && operatorDingTalkIds.length > 0) {
+  // P0 / P1 / P2 → 钉钉
+  if (['P0', 'P1', 'P2'].includes(alarm.priority) && operatorDingTalkIds.length > 0) {
     const t0 = Date.now();
     try {
       await dingtalk.send({ userIds: operatorDingTalkIds, title: subject, content: conclusion });

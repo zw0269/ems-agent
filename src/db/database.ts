@@ -47,6 +47,53 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_alarm_records_status
       ON alarm_records(status);
+
+    -- 每次 LLM API 调用的完整输入输出记录
+    CREATE TABLE IF NOT EXISTS llm_calls (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      alarm_id        TEXT    NOT NULL,
+      call_index      INTEGER NOT NULL DEFAULT 0,
+      provider        TEXT    NOT NULL,
+      model           TEXT    NOT NULL,
+      input_messages  TEXT    NOT NULL,
+      output_json     TEXT    NOT NULL,
+      duration_ms     INTEGER NOT NULL,
+      created_at      TEXT    NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_llm_calls_alarm_id
+      ON llm_calls(alarm_id);
+
+    CREATE INDEX IF NOT EXISTS idx_llm_calls_created_at
+      ON llm_calls(created_at DESC);
+
+    -- 每次告警采集的实时设备数据快照
+    CREATE TABLE IF NOT EXISTS realtime_snapshots (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      alarm_id      TEXT    NOT NULL,
+      snapshot_json TEXT    NOT NULL,
+      captured_at   TEXT    NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_realtime_snapshots_alarm_id
+      ON realtime_snapshots(alarm_id);
+
+    -- AI 自我反思改进建议及用户反馈
+    CREATE TABLE IF NOT EXISTS self_improvements (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      alarm_id        TEXT    NOT NULL,
+      suggestion_text TEXT    NOT NULL,
+      user_feedback   TEXT,
+      feedback_note   TEXT,
+      created_at      TEXT    NOT NULL,
+      feedback_at     TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_self_improvements_alarm_id
+      ON self_improvements(alarm_id);
+
+    CREATE INDEX IF NOT EXISTS idx_self_improvements_feedback
+      ON self_improvements(user_feedback);
   `);
 
   logger.info('Database', '数据库已初始化', { path: DB_PATH });

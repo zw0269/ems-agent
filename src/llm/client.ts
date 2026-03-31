@@ -2,6 +2,12 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import type { LLMResponse, Message, ToolCall } from '../types/index.js';
 import { logger } from '../utils/logger.js';
+import { insertLlmCall } from '../db/llmCallRepository.js';
+
+export interface LlmCallContext {
+  alarmId?: string | undefined;
+  callIndex?: number | undefined;
+}
 
 export type LLMProviderType = 'anthropic' | 'openai' | 'openai-compatible';
 
@@ -46,7 +52,7 @@ export class LLMClient {
    * 统一调用入口，带指数退避重试
    * 每次调用（含重试）都写入日志
    */
-  async call(messages: Message[], tools?: any[]): Promise<LLMResponse> {
+  async call(messages: Message[], tools?: any[], context?: LlmCallContext): Promise<LLMResponse> {
     let lastError: Error | undefined;
     const t0 = Date.now();
 
@@ -57,14 +63,26 @@ export class LLMClient {
           ? await this.callAnthropic(messages, tools)
           : await this.callOpenAI(messages, tools);
 
+        const durationMs = Date.now() - attemptStart;
+
         logger.info('LLMClient', 'API 调用成功', {
           provider: this.provider,
           model: this.model,
           attempt: attempt + 1,
           responseType: result.type,
           toolName: result.toolName,
-          durationMs: Date.now() - attemptStart,
+          durationMs,
           totalMs: Date.now() - t0,
+        });
+
+        insertLlmCall({
+          alarmId:       context?.alarmId    ?? '',
+          callIndex:     context?.callIndex  ?? 0,
+          provider:      this.provider,
+          model:         this.model,
+          inputMessages: messages,
+          output:        result,
+          durationMs,
         });
 
         return result;
