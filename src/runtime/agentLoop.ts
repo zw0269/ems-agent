@@ -43,7 +43,7 @@ export class AgentLoop {
       undefined,
       { alarmId: alarm.alarmId, callIndex: 0 },
     );
-    const conclusion = response.text ?? '[Agent] 未能生成硬件分析报告。';
+    const conclusion = response.text?.trim() || '[Agent] LLM 返回内容为空，请检查模型配置或日志。';
 
     logger.info('AgentLoop', '硬件故障分析完成', {
       alarmId: alarm.alarmId,
@@ -89,7 +89,7 @@ export class AgentLoop {
       );
 
       if (response.type === 'final_answer') {
-        const conclusion = response.text ?? '[Agent] 分析完成，但未返回具体结论。';
+        const conclusion = response.text?.trim() || '[Agent] LLM 返回内容为空，请检查模型配置或日志。';
         logger.info('AgentLoop', '软件故障分析完成，获得最终结论', {
           alarmId: alarm.alarmId,
           iterations: i + 1,

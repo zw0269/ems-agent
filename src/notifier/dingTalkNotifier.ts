@@ -19,6 +19,7 @@ export class DingTalkNotifier {
 
   /**
    * 发送 Markdown 消息到钉钉群机器人 Webhook
+   * 钉钉 Markdown text 字段上限约 4000 字节，超出则截断并附加提示
    */
   async send({ userIds, title, content }: {
     userIds: string[];
@@ -30,6 +31,16 @@ export class DingTalkNotifier {
       return;
     }
 
+    // 钉钉 Webhook markdown text 字段最大约 4000 字节（含标题部分）
+    const MAX_CONTENT_BYTES = 3800;
+    let safeContent = content;
+    if (Buffer.byteLength(content, 'utf8') > MAX_CONTENT_BYTES) {
+      // 按字节截断，避免截断 UTF-8 多字节字符导致乱码
+      const buf = Buffer.from(content, 'utf8').slice(0, MAX_CONTENT_BYTES);
+      safeContent = buf.toString('utf8').replace(/[^\u0000-\ufffd]*$/, '')
+        + '\n\n> ⚠️ 内容过长已截断，完整分析报告请查看邮件或 Web 面板。';
+    }
+
     try {
       console.log(`[DingTalk] 正在发送消息: ${title}`);
 
@@ -37,7 +48,7 @@ export class DingTalkNotifier {
         msgtype: 'markdown',
         markdown: {
           title,
-          text: `### ${title}\n\n${content}`,
+          text: `### ${title}\n\n${safeContent}`,
         },
         at: {
           atUserIds: userIds,
@@ -51,13 +62,15 @@ export class DingTalkNotifier {
       });
 
       if (response.data?.errcode !== 0) {
-        console.error('[DingTalk] 钉钉返回错误:', response.data);
-      } else {
-        console.log('[DingTalk] 钉钉消息发送成功');
+        const errMsg = `钉钉返回错误 errcode=${response.data?.errcode}: ${response.data?.errmsg}`;
+        console.error('[DingTalk]', errMsg, response.data);
+        throw new Error(errMsg);
       }
+
+      console.log('[DingTalk] 钉钉消息发送成功');
     } catch (error: unknown) {
       console.error('[DingTalk] 钉钉消息发送失败:', (error as Error).message);
-      // 不抛出错误，以免影响告警处理主流程
+      throw error;
     }
   }
 }

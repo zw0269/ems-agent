@@ -33,8 +33,11 @@ export class EmailNotifier {
     const user     = process.env['SMTP_USER']     ?? '';
     const fromName = process.env['SMTP_FROM_NAME'] ?? 'EMS Agent';
 
+    // 防护：body 为空时给出提示，避免发送空邮件
+    const safeBody = body.trim() || '[系统提示] AI 分析结果为空，请检查 LLM 配置或查看系统日志。';
+
     // 将纯文本换行转为 HTML，保留代码块格式
-    const htmlBody = body
+    const htmlBody = safeBody
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
@@ -60,7 +63,7 @@ export class EmailNotifier {
         from:    `"${fromName}" <${user}>`,
         to:      to.join(','),
         subject,
-        text:    body,
+        text:    safeBody,
         html,
       });
       logger.info('EmailNotifier', '邮件发送成功', { to, subject, durationMs: Date.now() - t0 });
