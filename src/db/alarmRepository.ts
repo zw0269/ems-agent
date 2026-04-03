@@ -131,6 +131,53 @@ export function queryAlarmsByRange(startAt: string, endAt: string): AlarmRecord[
 }
 
 /**
+ * 查询单条告警详情
+ */
+export function queryAlarmById(alarmId: string): AlarmRecord | undefined {
+  try {
+    return getDb()
+      .prepare('SELECT * FROM alarm_records WHERE alarm_id = ?')
+      .get(alarmId) as AlarmRecord | undefined;
+  } catch (err: unknown) {
+    logger.error('AlarmRepository', '查询单条告警失败', { alarmId, error: (err as Error).message });
+    return undefined;
+  }
+}
+
+/**
+ * 查询最近 N 小时内每小时的告警数量（用于趋势图）
+ * 返回 [{hour: 'HH:00', count: N}, ...]，最近 hours 个小时
+ */
+export function queryAlarmTrend(hours = 24): Array<{ hour: string; count: number }> {
+  try {
+    const rows = getDb().prepare(`
+      SELECT
+        strftime('%Y-%m-%dT%H:00', datetime(started_at, '-8 hours')) AS hour_utc,
+        COUNT(*) AS count
+      FROM alarm_records
+      WHERE started_at >= datetime('now', '-${hours} hours')
+      GROUP BY hour_utc
+      ORDER BY hour_utc ASC
+    `).all() as Array<{ hour_utc: string; count: number }>;
+
+    // 补全所有小时格（无数据的补 0）
+    const now = Date.now();
+    const result: Array<{ hour: string; count: number }> = [];
+    const countMap = new Map(rows.map(r => [r.hour_utc, r.count]));
+    for (let i = hours - 1; i >= 0; i--) {
+      const d = new Date(now - i * 3600000);
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}T${String(d.getUTCHours()).padStart(2,'0')}:00`;
+      const label = `${String((d.getUTCHours() + 8) % 24).padStart(2,'0')}:00`;
+      result.push({ hour: label, count: countMap.get(key) ?? 0 });
+    }
+    return result;
+  } catch (err: unknown) {
+    logger.error('AlarmRepository', '查询告警趋势失败', { error: (err as Error).message });
+    return [];
+  }
+}
+
+/**
  * 统计各状态数量
  */
 export function queryStats(): { total: number; done: number; error: number; processing: number } {

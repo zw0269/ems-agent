@@ -76,6 +76,62 @@ export function queryLlmCallsByAlarm(alarmId: string): LlmCallRecord[] {
 }
 
 /**
+ * 查询 Token 用量统计（今日 / 累计）
+ */
+export function queryTokenStats(): {
+  todayInput: number;
+  todayOutput: number;
+  totalInput: number;
+  totalOutput: number;
+  todayCalls: number;
+  totalCalls: number;
+} {
+  try {
+    const db = getDb();
+    const todayRow = db.prepare(`
+      SELECT
+        COALESCE(SUM(input_tokens),  0) AS input,
+        COALESCE(SUM(output_tokens), 0) AS output,
+        COUNT(*)                         AS calls
+      FROM llm_calls
+      WHERE created_at >= datetime('now', 'start of day', '+8 hours')
+         OR created_at >= strftime('%Y-%m-%dT00:00:00+08:00', 'now', '+8 hours')
+    `).get() as { input: number; output: number; calls: number };
+
+    const totalRow = db.prepare(`
+      SELECT
+        COALESCE(SUM(input_tokens),  0) AS input,
+        COALESCE(SUM(output_tokens), 0) AS output,
+        COUNT(*)                         AS calls
+      FROM llm_calls
+    `).get() as { input: number; output: number; calls: number };
+
+    // 使用简单的按日期字符串前缀过滤（北京时间日期）
+    const todayDate = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const todayRow2 = db.prepare(`
+      SELECT
+        COALESCE(SUM(input_tokens),  0) AS input,
+        COALESCE(SUM(output_tokens), 0) AS output,
+        COUNT(*)                         AS calls
+      FROM llm_calls
+      WHERE created_at LIKE ?
+    `).get(todayDate + '%') as { input: number; output: number; calls: number };
+
+    return {
+      todayInput:  todayRow2.input,
+      todayOutput: todayRow2.output,
+      todayCalls:  todayRow2.calls,
+      totalInput:  totalRow.input,
+      totalOutput: totalRow.output,
+      totalCalls:  totalRow.calls,
+    };
+  } catch (err: unknown) {
+    logger.error('LlmCallRepository', '查询 Token 统计失败', { error: (err as Error).message });
+    return { todayInput: 0, todayOutput: 0, todayCalls: 0, totalInput: 0, totalOutput: 0, totalCalls: 0 };
+  }
+}
+
+/**
  * 查询最近 N 条 LLM 调用记录
  */
 export function queryRecentLlmCalls(limit = 50): LlmCallRecord[] {
