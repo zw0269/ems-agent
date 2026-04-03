@@ -59,7 +59,7 @@ export class LLMClient {
     for (let attempt = 0; attempt < this.maxRetries; attempt++) {
       const attemptStart = Date.now();
       try {
-        const result = this.provider === 'anthropic'
+        const { response: result, inputTokens, outputTokens } = this.provider === 'anthropic'
           ? await this.callAnthropic(messages, tools)
           : await this.callOpenAI(messages, tools);
 
@@ -71,6 +71,8 @@ export class LLMClient {
           attempt: attempt + 1,
           responseType: result.type,
           toolName: result.toolName,
+          inputTokens,
+          outputTokens,
           durationMs,
           totalMs: Date.now() - t0,
         });
@@ -83,6 +85,8 @@ export class LLMClient {
           inputMessages: messages,
           output:        result,
           durationMs,
+          inputTokens,
+          outputTokens,
         });
 
         return result;
@@ -114,7 +118,7 @@ export class LLMClient {
 
   // ─── Anthropic ────────────────────────────────────────────────────────────
 
-  private async callAnthropic(messages: Message[], tools?: any[]): Promise<LLMResponse> {
+  private async callAnthropic(messages: Message[], tools?: any[]): Promise<{ response: LLMResponse; inputTokens: number; outputTokens: number }> {
     const systemMsg = messages.find(m => m.role === 'system');
     const anthropicMessages = toAnthropicMessages(messages);
     const anthropicTools: Anthropic.Tool[] | undefined = tools?.map(t => ({
@@ -123,7 +127,7 @@ export class LLMClient {
       input_schema: t.parameters as Anthropic.Tool.InputSchema,
     }));
 
-    const response = await this.anthropicClient!.messages.create({
+    const raw = await this.anthropicClient!.messages.create({
       model: this.model,
       max_tokens: 4096,
       ...(systemMsg ? { system: systemMsg.content } : {}),
@@ -131,42 +135,52 @@ export class LLMClient {
       ...(anthropicTools?.length ? { tools: anthropicTools } : {}),
     });
 
-    for (const block of response.content) {
+    const inputTokens  = raw.usage?.input_tokens  ?? 0;
+    const outputTokens = raw.usage?.output_tokens ?? 0;
+
+    for (const block of raw.content) {
       if (block.type === 'tool_use') {
-        return { type: 'tool_call', toolName: block.name, toolCallId: block.id, args: block.input };
+        return { response: { type: 'tool_call', toolName: block.name, toolCallId: block.id, args: block.input }, inputTokens, outputTokens };
       }
     }
-    const textBlock = response.content.find(b => b.type === 'text');
-    return { type: 'final_answer', text: textBlock?.type === 'text' ? textBlock.text : '' };
+    const textBlock = raw.content.find(b => b.type === 'text');
+    return { response: { type: 'final_answer', text: textBlock?.type === 'text' ? textBlock.text : '' }, inputTokens, outputTokens };
   }
 
   // ─── OpenAI / OpenAI-Compatible ───────────────────────────────────────────
 
-  private async callOpenAI(messages: Message[], tools?: any[]): Promise<LLMResponse> {
+  private async callOpenAI(messages: Message[], tools?: any[]): Promise<{ response: LLMResponse; inputTokens: number; outputTokens: number }> {
     const openaiTools: OpenAI.ChatCompletionTool[] | undefined = tools?.map(t => ({
       type: 'function' as const,
       function: t,
     }));
 
-    const response = await this.openaiClient!.chat.completions.create({
+    const raw = await this.openaiClient!.chat.completions.create({
       model: this.model,
       messages: messages as OpenAI.ChatCompletionMessageParam[],
       ...(openaiTools?.length ? { tools: openaiTools, tool_choice: 'auto' as const } : {}),
     });
 
-    const message = response.choices[0]?.message;
+    const inputTokens  = raw.usage?.prompt_tokens     ?? 0;
+    const outputTokens = raw.usage?.completion_tokens ?? 0;
+
+    const message = raw.choices[0]?.message;
     if (!message) throw new Error('LLM 返回空响应');
 
     if (message.tool_calls?.length) {
       const tc = message.tool_calls[0]!;
       return {
-        type: 'tool_call',
-        toolName: tc.function.name,
-        toolCallId: tc.id,
-        args: JSON.parse(tc.function.arguments),
+        response: {
+          type: 'tool_call',
+          toolName: tc.function.name,
+          toolCallId: tc.id,
+          args: JSON.parse(tc.function.arguments),
+        },
+        inputTokens,
+        outputTokens,
       };
     }
-    return { type: 'final_answer', text: message.content ?? '' };
+    return { response: { type: 'final_answer', text: message.content ?? '' }, inputTokens, outputTokens };
   }
 }
 

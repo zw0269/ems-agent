@@ -2,6 +2,171 @@
 
 ---
 
+## 2026-04-03（BUG-1）— 修复 queryPcs 数据路由错误
+
+### 问题
+`toolRouter.ts` 中 `queryPcs` 和 `queryBms` 共用同一个 case，LLM 调用 `queryPcs` 时实际查询的是 BMS 数据，PCS 数据从未被正确获取。
+
+### [修改] `src/tools/queryEms.ts`
+新增 `queryPcs(args)` 函数：
+- 并行调用 `GET /grid-ems/pcs/yc`（遥测）和 `GET /grid-ems/pcs/yx`（遥信）
+- 支持可选 `fields` 参数按 `item.key` 过滤返回结果
+- 返回结构 `{ yc: PcsYcItem[], yx: PcsYxItem[] }`
+- 完整 logger 记录（含两端返回条数和耗时）
+
+### [修改] `src/runtime/toolRouter.ts`
+- 拆分 `queryBms`/`queryPcs` 的合并 case 为独立 case
+- `queryPcs` 路由到新建的 `queryPcs()` 函数（之前错误路由到 `queryBms()`）
+- 导入新函数 `queryPcs`
+
+### [修改] `src/tools/index.ts`
+- 更新 `queryPcs` 工具描述：明确说明同时返回遥测+遥信合并数据
+- `fields` 参数改为可选（之前 required）
+- 新增 `deviceId` 参数说明（预留）
+
+---
+
+## 2026-04-03（EXP-1~3）— 三项扩展功能
+
+### EXP-1 [修改] `src/index.ts`
+P3 告警早退出（Early Return）：
+- 在 `processAlarm()` 数据采集前，判断 `alarm.priority === 'P3'`
+- P3 直接生成固定结论文本、更新数据库状态，不触发任何 LLM 调用
+- 节省 100% P3 告警的 API 费用（通讯延迟类告警无需 LLM 分析）
+
+### EXP-2 [修改] `src/gateway/alarmQueue.ts`
+新增 `popByPriority(priority)` 方法：
+- 从队列中找到第一个匹配优先级的告警并移除，不影响其余元素顺序
+
+### EXP-2 [修改] `src/index.ts`
+P0 独立消费者（快速通道）：
+- 200ms 轮询间隔（主循环 1000ms）
+- 使用 `popByPriority('P0')` 专摘 P0 告警
+- 不 `await processAlarm()`，并发执行，不阻塞主队列
+- 确保 P0 告警在 P1 长耗时处理期间也能立即响应
+
+### EXP-3 [修改] `src/runtime/agentLoop.ts`
+软件故障结论格式验证：
+- `final_answer` 返回后检查是否包含"根因"、"证据链"、"操作建议"三个章节
+- 缺少任意章节时（且剩余迭代次数 > 1），追加修正请求消息并 continue 进入下一迭代
+- 仅触发一次修正（`i < maxIterations - 1`），防止无限修正循环
+
+---
+
+## 2026-04-03（INT-1+2）— KNOWLEDGE.md 集成 + Session 计数语义修复
+
+### INT-1 [修改] `src/llm/prompts.ts`
+- 新增 `KNOWLEDGE_PATH` 指向项目根目录的 `KNOWLEDGE.md`
+- 新增 `loadKnowledgeMd()` 函数，热加载领域知识（无文件时静默返回空串）
+- `buildSystemPrompt()` 在 self-improvement 注入前先注入 `KNOWLEDGE.md` 内容
+- 注入格式：`【设备领域知识库】\n{内容}`，优先于改进建议出现
+
+### INT-2 [修改] `src/server/statusStore.ts`
+- 新增 `incrementSession()` / `decrementSession()` 方法，语义明确
+- `decrementSession()` 有下限保护（不低于 0）
+- 保留 `updateSessionCount(n)` 并标记为 `@deprecated`，防止其他调用方报错
+
+### [修改] `src/index.ts`
+- 主消费循环中 `updateSessionCount(1)` → `incrementSession()`
+- `updateSessionCount(0)` → `decrementSession()`
+
+---
+
+## 2026-04-03（DB-1）— llm_calls 表添加 token 用量字段
+
+### [修改] `src/db/database.ts`
+- `CREATE TABLE llm_calls` 新增 `input_tokens INTEGER NOT NULL DEFAULT 0` 和 `output_tokens INTEGER NOT NULL DEFAULT 0` 两列
+- 添加迁移代码（`ALTER TABLE ADD COLUMN`）兼容已存在的数据库，捕获"列已存在"异常
+
+### [修改] `src/db/llmCallRepository.ts`
+- `LlmCallRecord` 接口新增 `input_tokens: number`、`output_tokens: number` 字段
+- `insertLlmCall()` 参数新增可选 `inputTokens`、`outputTokens`，写入时传入（默认 0）
+
+### [修改] `src/llm/client.ts`
+- `callAnthropic()` 返回类型改为 `{ response, inputTokens, outputTokens }`，从 `response.usage` 解析
+- `callOpenAI()` 同样解析 `usage.prompt_tokens` / `usage.completion_tokens`
+- `call()` 统一入口解构两个方法的返回值，写入日志（含 token 数）和数据库
+
+---
+
+## 2026-04-03（TOOL-1+2）— 删除幽灵工具 + 精简工具描述
+
+### T1 [修改] `src/tools/index.ts`
+删除两个指向不存在接口的遗留工具：
+- `queryBms`（指向 `/api/telemetry/bms`，不存在）
+- `queryHistory`（指向 `/api/history`，不存在）
+保留并已修复的 `queryPcs`（BUG-1 已修复为真实接口）
+
+### T2 [修改] `src/tools/index.ts`
+重写所有 11 个工具描述：
+- 去掉字段枚举列表（从平均 60 字缩短到 25 字以内）
+- 聚焦"何时调用此工具"而非"返回哪些字段"
+- `getDcdcYc/Yx`、`getMeterYc/Yx` 描述精简参数说明
+
+### [修改] `src/runtime/toolRouter.ts`
+- 删除 `queryBms`、`queryHistory` 的 case 分支
+- 删除不再使用的 `queryBms`、`queryHistory` import
+
+---
+
+## 2026-04-03（DESIGN-1~5）— 五项设计缺陷修复
+
+### D1 [修改] `src/runtime/agentLoop.ts`
+- `maxIterations` 从 30 改为 20（设计文档原值为 10，折中取 20 防止合理复杂告警截断）
+
+### D2 [修改] `src/runtime/agentLoop.ts`
+- 三处 `await this.runSelfReflection(...)` 改为 fire-and-forget 模式（`.catch()` 处理错误）
+- 自我反思不再阻塞 `notifyOperator()` 的调用，P0 告警通知提前 2~10 秒送达
+
+### D3 [修改] `src/index.ts`
+- `AgentLoop` 实例从 `processAlarm()` 函数内部提升为模块级单例
+- 避免每次告警重建 Anthropic/OpenAI SDK 客户端和 HTTP 连接池
+
+### D4 [修改] `src/gateway/heartbeat.ts`
+- 新增 `consecutiveFailures`（连续失败计数）和 `skipCounter`（退避跳过计数）字段
+- 实现分级退避：失败 3 次每隔 1 次执行，失败 6 次每隔 3 次，失败 10 次每隔 9 次（约 5 分钟）
+- 连续失败 3 次后日志从 `error` 降级为 `warn`，减少噪音
+- 成功后自动重置失败计数
+
+### D5 [修改] `src/runtime/contextManager.ts`
+- `addAssistant()` 在原有 `content` 估算基础上，补充 `toolCalls` 序列化 JSON 的 token 估算
+- 修复 LLM 返回 tool_call 时 content 为空导致 token 系统性低估的问题
+
+---
+
+## 2026-04-03（BUG-3）— 修复 compact() 破坏 tool_use/tool_result 配对
+
+### 问题
+原 `compact()` 固定取末尾 3 条消息，若切断点恰好在 `tool_result` 前面（缺少对应 `assistant(tool_use)`），下一次 Anthropic API 调用会返回 400 错误。
+
+### [修改] `src/runtime/contextManager.ts`
+重写 `compact()` 安全截断策略：
+- 从末尾向前扫描，寻找最近一个非 tool_result 的 `user` 消息作为安全截断起始点
+- 保留结构：`system` + `firstUser` + 压缩占位占位符 + 安全截断点之后的全部消息
+- 确保保留的末尾消息序列始终以完整的 `user` 消息开头，不破坏 tool_use/tool_result 配对
+- 避免重复保留 firstUser（当其已在 tail 中时跳过）
+
+---
+
+## 2026-04-03（BUG-2）— 自我改进定期聚合（方案B）
+
+### 问题
+用户在 Web 面板接受 AI 建议后，虽然会追加到 `self-improvement.md`，但随着时间累积文件内容会不断增长、出现重复建议，缺乏整理机制。
+
+### [修改] `src/db/selfImprovementRepository.ts`
+新增 `aggregateAcceptedSuggestions()` 函数：
+- 查询 DB 中所有 `user_feedback='accepted'` 的建议，按时间升序排列
+- 按 `suggestion_text` 前 100 字去重（保留最早的一条）
+- 重写 `self-improvement.md`：包含聚合时间戳、去重统计、每条建议的告警 ID + 用户备注
+- 无已接受建议时写提示性空文件（防止旧内容残留误导 LLM）
+
+### [修改] `src/index.ts`
+- 导入 `node-cron` 和 `aggregateAcceptedSuggestions`
+- 启动时立即执行一次聚合（确保上次运行期间累积的接受建议立即生效）
+- 注册每日凌晨 2:00 的 cron job 自动重整
+
+---
+
 ## 2026-03-30（第十批）— SQLite 数据库持久化
 
 ### [新增] `src/db/database.ts`

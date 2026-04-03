@@ -370,6 +370,40 @@ export async function getRealTimeAlarms(): Promise<AlarmItem[]> {
 }
 
 /**
+ * 查询 PCS 综合数据（遥测 + 遥信合并）
+ * 并行调用 GET /grid-ems/pcs/yc 和 GET /grid-ems/pcs/yx
+ * 可通过 fields 过滤返回字段（匹配 item.key）
+ */
+export async function queryPcs(args: { fields?: string[]; deviceId?: string }): Promise<{
+  yc: PcsYcItem[];
+  yx: PcsYxItem[];
+}> {
+  const t0 = Date.now();
+  logger.info('QueryEms', 'queryPcs 查询 PCS 综合数据（yc + yx）', {
+    fields: args.fields,
+    deviceId: args.deviceId,
+  });
+
+  const [ycItems, yxItems] = await Promise.all([getPcsYc(), getPcsYx()]);
+
+  // 按 fields 过滤（未传则返回全部）
+  const yc = args.fields?.length
+    ? ycItems.filter(item => args.fields!.includes(item.key))
+    : ycItems;
+  const yx = args.fields?.length
+    ? yxItems.filter(item => args.fields!.includes(item.key))
+    : yxItems;
+
+  logger.info('QueryEms', 'queryPcs 查询完成', {
+    ycCount: yc.length,
+    yxCount: yx.length,
+    durationMs: Date.now() - t0,
+  });
+
+  return { yc, yx };
+}
+
+/**
  * 获取历史告警列表
  * GET /grid-ems/AlarmAndEvent/historyAlarm/list?startTime=...&endTime=...
  * 时间格式：YYYY-MM-DD HH:mm:ss，不传则默认查最近 24 小时

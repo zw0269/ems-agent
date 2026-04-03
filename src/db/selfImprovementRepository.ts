@@ -79,6 +79,71 @@ export function queryRecentSelfImprovements(limit = 50): SelfImprovementRecord[]
 }
 
 /**
+ * 聚合所有已接受建议，重写 self-improvement.md（方案B：定期整理去重）
+ * 将 DB 中 user_feedback='accepted' 的全部建议按创建时间排序，
+ * 去除重复内容后写成干净的 Markdown 文件，供 buildSystemPrompt() 读取。
+ */
+export function aggregateAcceptedSuggestions(): void {
+  try {
+    const records = getDb()
+      .prepare(`
+        SELECT alarm_id, suggestion_text, created_at, feedback_note
+        FROM self_improvements
+        WHERE user_feedback = 'accepted'
+        ORDER BY created_at ASC
+      `)
+      .all() as Array<{ alarm_id: string; suggestion_text: string; created_at: string; feedback_note: string | null }>;
+
+    if (records.length === 0) {
+      // 无已接受建议时写空文件（保留标题）
+      fs.writeFileSync(SELF_IMPROVEMENT_PATH, '# EMS Agent 自我改进积累\n\n> 暂无已接受的改进建议。\n', 'utf8');
+      logger.info('SelfImprovementRepository', '无已接受建议，self-improvement.md 已清空');
+      return;
+    }
+
+    // 按 suggestion_text 去重（保留最新的那条）
+    const seen = new Set<string>();
+    const unique = records.filter(r => {
+      const key = r.suggestion_text.trim().slice(0, 100); // 前100字作为去重key
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const lines: string[] = [
+      '# EMS Agent 自我改进积累',
+      '',
+      `> 最近一次聚合：${nowBeijing()}，共 ${unique.length} 条建议（原始 ${records.length} 条，去重后 ${unique.length} 条）`,
+      '',
+      '---',
+    ];
+
+    for (const r of unique) {
+      lines.push('');
+      lines.push(`## ${r.created_at} (alarmId: ${r.alarm_id})`);
+      lines.push('');
+      lines.push(r.suggestion_text);
+      if (r.feedback_note) {
+        lines.push('');
+        lines.push(`> 用户备注：${r.feedback_note}`);
+      }
+      lines.push('');
+      lines.push('---');
+    }
+
+    fs.writeFileSync(SELF_IMPROVEMENT_PATH, lines.join('\n'), 'utf8');
+    logger.info('SelfImprovementRepository', 'self-improvement.md 聚合完成', {
+      total: records.length,
+      unique: unique.length,
+    });
+  } catch (err: unknown) {
+    logger.error('SelfImprovementRepository', '聚合 self-improvement.md 失败', {
+      error: (err as Error).message,
+    });
+  }
+}
+
+/**
  * 用户给出反馈（accepted / rejected）
  * 若接受，则追加建议内容到 self-improvement.md
  */

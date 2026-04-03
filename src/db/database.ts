@@ -58,6 +58,8 @@ export function getDb(): Database.Database {
       input_messages  TEXT    NOT NULL,
       output_json     TEXT    NOT NULL,
       duration_ms     INTEGER NOT NULL,
+      input_tokens    INTEGER NOT NULL DEFAULT 0,
+      output_tokens   INTEGER NOT NULL DEFAULT 0,
       created_at      TEXT    NOT NULL
     );
 
@@ -95,6 +97,10 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_self_improvements_feedback
       ON self_improvements(user_feedback);
   `);
+
+  // 迁移：对已有数据库补充 token 字段（IF NOT EXISTS 语义通过 try/catch 模拟）
+  try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN input_tokens  INTEGER NOT NULL DEFAULT 0`); } catch { /* 列已存在，忽略 */ }
+  try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* 列已存在，忽略 */ }
 
   logger.info('Database', '数据库已初始化', { path: DB_PATH });
   return _db;

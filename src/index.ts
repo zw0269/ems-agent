@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import cron from 'node-cron';
 import { Heartbeat } from './gateway/heartbeat.js';
 import { AlarmQueue } from './gateway/alarmQueue.js';
 import { SessionManager } from './gateway/sessionManager.js';
@@ -14,6 +15,7 @@ import { logger } from './utils/logger.js';
 import { getDb } from './db/database.js';
 import { insertAlarm, updateAlarmFinished } from './db/alarmRepository.js';
 import { insertRealtimeSnapshot } from './db/realtimeSnapshotRepository.js';
+import { aggregateAcceptedSuggestions } from './db/selfImprovementRepository.js';
 import type { Alarm } from './types/index.js';
 
 /**
@@ -67,6 +69,9 @@ async function gatherHistory(alarm: Alarm) {
   return getHistoryAlarms({ startTime, endTime });
 }
 
+// AgentLoop 单例：避免每次告警重建 LLMClient（含 HTTP 连接池）
+const agentLoop = new AgentLoop();
+
 /**
  * 告警处理核心逻辑
  */
@@ -81,6 +86,16 @@ async function processAlarm(alarm: Alarm) {
   });
   statusStore.startAlarm(alarm);
   insertAlarm(alarm, alarm.alarmId.startsWith('TEST-'));
+
+  // EXP-1：P3 告警（通讯延迟类）跳过 LLM，直接记日志存库，节省 API 调用费用
+  if (alarm.priority === 'P3') {
+    const conclusion = `[P3 告警] ${alarm.alarmType} 为低优先级通讯类告警，已记录，无需 LLM 分析。如持续出现请人工排查通讯链路。`;
+    const durationMs = Date.now() - t0;
+    logger.info('Agent', 'P3 告警跳过 LLM，直接记录', { alarmId: alarm.alarmId, alarmType: alarm.alarmType });
+    statusStore.finishAlarm(alarm.alarmId, conclusion, false);
+    updateAlarmFinished(alarm.alarmId, conclusion, false, durationMs);
+    return;
+  }
 
   try {
     // 并行采集实时快照 + 历史告警
@@ -100,7 +115,6 @@ async function processAlarm(alarm: Alarm) {
       violations: violations.map(v => v.message),
     });
 
-    const agentLoop = new AgentLoop();
     let conclusion: string;
 
     if (alarm.faultCategory === 'hardware') {
@@ -165,7 +179,27 @@ async function main() {
   startStatusServer(statusPort, alarmQueue);
   logger.info('Agent', '状态面板已启动', { port: statusPort });
 
-  // 4. 主消费循环
+  // 4. 每日凌晨2点聚合已接受的 AI 改进建议 → 重写 self-improvement.md（方案B）
+  aggregateAcceptedSuggestions(); // 启动时立即执行一次，确保文件内容最新
+  cron.schedule('0 2 * * *', () => {
+    logger.info('Agent', '开始每日自我改进聚合');
+    aggregateAcceptedSuggestions();
+  });
+
+  // 5. EXP-2：P0 独立消费者（200ms 轮询，不 await，并发执行，不阻塞主队列）
+  setInterval(() => {
+    const p0 = alarmQueue.popByPriority('P0');
+    if (!p0) return;
+    if (!p0.priority) p0.priority = 'P0';
+    sessionManager.start(p0.alarmId);
+    statusStore.incrementSession();
+    logger.info('Agent', 'P0 告警进入快速通道', { alarmId: p0.alarmId });
+    processAlarm(p0)
+      .catch(err => logger.error('Agent', 'P0 快速通道异常', { alarmId: p0.alarmId, error: (err as Error).message }))
+      .finally(() => { sessionManager.finish(p0.alarmId); statusStore.decrementSession(); });
+  }, 200);
+
+  // 6. 主消费循环（P1/P2/P3）
   setInterval(async () => {
     statusStore.updateQueueLength(alarmQueue.length);
 
@@ -175,7 +209,7 @@ async function main() {
     if (!alarm.priority) alarm.priority = ALARM_PRIORITY[alarm.alarmType] ?? 'P2';
 
     sessionManager.start(alarm.alarmId);
-    statusStore.updateSessionCount(1);
+    statusStore.incrementSession();
 
     try {
       await processAlarm(alarm);
@@ -186,7 +220,7 @@ async function main() {
       });
     } finally {
       sessionManager.finish(alarm.alarmId);
-      statusStore.updateSessionCount(0);
+      statusStore.decrementSession();
     }
   }, 1000);
 

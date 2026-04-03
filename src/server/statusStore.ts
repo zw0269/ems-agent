@@ -63,8 +63,17 @@ class StatusStore {
     this.state.queueLength = n;
   }
 
+  /** @deprecated 使用 incrementSession() / decrementSession() */
   updateSessionCount(n: number) {
     this.state.activeSessionCount = n;
+  }
+
+  incrementSession() {
+    this.state.activeSessionCount++;
+  }
+
+  decrementSession() {
+    this.state.activeSessionCount = Math.max(0, this.state.activeSessionCount - 1);
   }
 
   recordHeartbeat(alarmCount: number, ok: boolean, error?: string) {

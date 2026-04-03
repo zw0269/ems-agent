@@ -40,3 +40,5 @@ logs/
 
 # SQLite 数据库文件（本地数据，不提交）
 data/
+
+docs/

@@ -11,6 +11,8 @@ export interface LlmCallRecord {
   input_messages: string;
   output_json: string;
   duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
   created_at: string;
 }
 
@@ -30,13 +32,15 @@ export function insertLlmCall(params: {
   inputMessages: Message[];
   output: LLMResponse;
   durationMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
 }): void {
   try {
     getDb().prepare(`
       INSERT INTO llm_calls
-        (alarm_id, call_index, provider, model, input_messages, output_json, duration_ms, created_at)
+        (alarm_id, call_index, provider, model, input_messages, output_json, duration_ms, input_tokens, output_tokens, created_at)
       VALUES
-        (@alarm_id, @call_index, @provider, @model, @input_messages, @output_json, @duration_ms, @created_at)
+        (@alarm_id, @call_index, @provider, @model, @input_messages, @output_json, @duration_ms, @input_tokens, @output_tokens, @created_at)
     `).run({
       alarm_id:       params.alarmId,
       call_index:     params.callIndex,
@@ -45,6 +49,8 @@ export function insertLlmCall(params: {
       input_messages: JSON.stringify(params.inputMessages),
       output_json:    JSON.stringify(params.output),
       duration_ms:    params.durationMs,
+      input_tokens:   params.inputTokens  ?? 0,
+      output_tokens:  params.outputTokens ?? 0,
       created_at:     nowBeijing(),
     });
   } catch (err: unknown) {

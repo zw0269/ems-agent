@@ -5,6 +5,21 @@ import type { Alarm } from '../types/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../');
 const SELF_IMPROVEMENT_PATH = path.join(ROOT, 'self-improvement.md');
+const KNOWLEDGE_PATH = path.join(ROOT, 'KNOWLEDGE.md');
+
+/**
+ * 读取 KNOWLEDGE.md 领域知识（热加载，无需重启）
+ */
+function loadKnowledgeMd(): string {
+  try {
+    if (!fs.existsSync(KNOWLEDGE_PATH)) return '';
+    const content = fs.readFileSync(KNOWLEDGE_PATH, 'utf8').trim();
+    if (!content) return '';
+    return `\n\n【设备领域知识库】\n${content}`;
+  } catch {
+    return '';
+  }
+}
 
 /**
  * 读取 self-improvement.md，每次调用时重新读取（热加载，无需重启）
@@ -70,11 +85,12 @@ export const SOFTWARE_SYSTEM_PROMPT = `
 `;
 
 export function buildSystemPrompt(faultCategory: string): string {
-  const improvement = loadSelfImprovementMd();
+  const knowledge    = loadKnowledgeMd();
+  const improvement  = loadSelfImprovementMd();
   if (faultCategory === 'hardware') {
-    return HARDWARE_SYSTEM_PROMPT + improvement;
+    return HARDWARE_SYSTEM_PROMPT + knowledge + improvement;
   }
-  return SOFTWARE_SYSTEM_PROMPT + improvement;
+  return SOFTWARE_SYSTEM_PROMPT + knowledge + improvement;
 }
 
 export function buildUserMessage(alarm: any, initialData: any): string {

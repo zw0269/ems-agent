@@ -48,6 +48,16 @@ export class AlarmQueue {
     return this.pending.shift();
   }
 
+  /**
+   * 弹出指定优先级的第一个告警（不影响其他优先级的顺序）
+   * 用于 P0 独立消费者快速通道
+   */
+  popByPriority(priority: string): Alarm | undefined {
+    const idx = this.pending.findIndex(a => a.priority === priority);
+    if (idx === -1) return undefined;
+    return this.pending.splice(idx, 1)[0];
+  }
+
   get length(): number {
     return this.pending.length;
   }

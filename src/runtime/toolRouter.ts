@@ -1,6 +1,4 @@
-import { queryBms } from '../tools/queryBms.js';
-import { queryHistory } from '../tools/queryHistory.js';
-import { getHomePage, getBmsYx, getPcsYc, getPcsYx, getDcdcYc, getDcdcYx, getMeterYc, getMeterYx, getRealTimeAlarms, getHistoryAlarms } from '../tools/queryEms.js';
+import { getHomePage, getBmsYx, getPcsYc, getPcsYx, getDcdcYc, getDcdcYx, getMeterYc, getMeterYx, getRealTimeAlarms, getHistoryAlarms, queryPcs } from '../tools/queryEms.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -18,12 +16,8 @@ export class ToolRouter {
     try {
       let result: any;
       switch (toolName) {
-        case 'queryBms':
         case 'queryPcs':
-          result = await queryBms(args);
-          break;
-        case 'queryHistory':
-          result = await queryHistory(args);
+          result = await queryPcs(args);
           break;
         case 'getHomePage':
           result = await getHomePage();

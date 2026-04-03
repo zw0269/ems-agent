@@ -15,7 +15,7 @@ import { insertSelfImprovement } from '../db/selfImprovementRepository.js';
 export class AgentLoop {
   private llm: LLMClient;
   private toolRouter: ToolRouter;
-  private maxIterations = 30;
+  private maxIterations = 20;
 
   constructor() {
     this.llm = new LLMClient();
@@ -51,7 +51,10 @@ export class AgentLoop {
       durationMs: Date.now() - t0,
     });
 
-    await this.runSelfReflection(alarm, conclusion, 1);
+    // fire-and-forget：自我反思不阻塞通知发送
+    this.runSelfReflection(alarm, conclusion, 1).catch(err =>
+      logger.warn('AgentLoop', '自我反思失败（非阻塞）', { alarmId: alarm.alarmId, error: (err as Error).message }),
+    );
 
     return conclusion;
   }
@@ -89,7 +92,22 @@ export class AgentLoop {
       );
 
       if (response.type === 'final_answer') {
-        const conclusion = response.text?.trim() || '[Agent] LLM 返回内容为空，请检查模型配置或日志。';
+        let conclusion = response.text?.trim() || '[Agent] LLM 返回内容为空，请检查模型配置或日志。';
+
+        // EXP-3：验证结论格式，缺失关键章节时追加一次修正请求（仅修正一次，防止死循环）
+        const REQUIRED_SECTIONS = ['根因', '证据链', '操作建议'];
+        const missingSections = REQUIRED_SECTIONS.filter(s => !conclusion.includes(s));
+        if (missingSections.length > 0 && i < this.maxIterations - 1) {
+          logger.warn('AgentLoop', '结论缺少关键章节，追加格式修正请求', {
+            alarmId: alarm.alarmId,
+            missingSections,
+            iteration: i + 1,
+          });
+          ctx.addAssistant(conclusion);
+          ctx.addUser(`请按以下格式重新整理上面的分析结论，确保包含以下三个章节：\n根因：[一句话总结]\n证据链：[具体数据支撑]\n操作建议：[具体步骤]\n\n缺失的章节：${missingSections.join('、')}`);
+          continue; // 进入下一次迭代获取修正后的结论
+        }
+
         logger.info('AgentLoop', '软件故障分析完成，获得最终结论', {
           alarmId: alarm.alarmId,
           iterations: i + 1,
@@ -97,7 +115,10 @@ export class AgentLoop {
           durationMs: Date.now() - t0,
         });
 
-        await this.runSelfReflection(alarm, conclusion, i + 1);
+        // fire-and-forget：自我反思不阻塞通知发送
+        this.runSelfReflection(alarm, conclusion, i + 1).catch(err =>
+          logger.warn('AgentLoop', '自我反思失败（非阻塞）', { alarmId: alarm.alarmId, error: (err as Error).message }),
+        );
 
         return conclusion;
       }
@@ -126,7 +147,10 @@ export class AgentLoop {
       durationMs: Date.now() - t0,
     });
 
-    await this.runSelfReflection(alarm, fallback, this.maxIterations);
+    // fire-and-forget：自我反思不阻塞通知发送
+    this.runSelfReflection(alarm, fallback, this.maxIterations).catch(err =>
+      logger.warn('AgentLoop', '自我反思失败（非阻塞）', { alarmId: alarm.alarmId, error: (err as Error).message }),
+    );
 
     return fallback;
   }
