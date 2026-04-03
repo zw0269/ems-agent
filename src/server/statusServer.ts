@@ -8,6 +8,7 @@ import {
   updateSelfImprovementFeedback,
 } from '../db/selfImprovementRepository.js';
 import { queryRealtimeSnapshotByAlarm } from '../db/realtimeSnapshotRepository.js';
+import { queryRecentEmsAlarms } from '../db/emsAlarmRepository.js';
 import type { AlarmQueue } from '../gateway/alarmQueue.js';
 import type { Alarm } from '../types/index.js';
 import { logger } from '../utils/logger.js';
@@ -348,6 +349,20 @@ tr.clickable:hover td { background: rgba(99,102,241,.06); }
       <button class="btn btn-ghost" id="h-next" onclick="historyPage(1)">下一页 →</button>
     </div>
   </div>
+
+  <!-- EMS 告警（来自 Agent 工具查询） -->
+  <div class="panel" style="margin-top:20px">
+    <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>🔍 Agent 工具查询的 EMS 告警</span>
+      <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="loadEmsAlarms()">刷新</button>
+    </div>
+    <div class="table-wrap" style="margin-top:8px">
+      <table>
+        <thead><tr><th>EMS ID</th><th>告警名称</th><th>级别</th><th>设备类型</th><th>告警时间</th><th>恢复时间</th><th>来源</th><th>关联 Agent 告警</th></tr></thead>
+        <tbody id="ems-alarms-tbody"><tr><td colspan="8" class="empty">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 </div>
 
@@ -445,7 +460,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
   _currentTab = tab;
-  if (tab === 'alarms' && _historyData.length === 0) loadHistory();
+  if (tab === 'alarms') { if (_historyData.length === 0) loadHistory(); loadEmsAlarms(); }
   if (tab === 'logs') loadLogs();
   if (tab === 'ai') { loadSuggestions(); loadSuggestionsHistory(); }
 }
@@ -913,14 +928,17 @@ async function loadSuggestionsHistory() {
     const el = document.getElementById('suggestions-history');
     const handled = (d.records||[]).filter(r => r.user_feedback !== null);
     if (!handled.length) { el.innerHTML = '<div class="empty">暂无历史记录</div>'; return; }
+    // 存储完整建议文本供弹窗使用
+    handled.forEach(r => { _suggestionTexts[r.id] = r.suggestion_text || ''; });
     el.innerHTML = '<div class="table-wrap"><table>' +
-      '<thead><tr><th>时间</th><th>告警</th><th>反馈</th><th>建议摘要</th></tr></thead><tbody>' +
+      '<thead><tr><th>时间</th><th>告警</th><th>反馈</th><th>建议摘要（点击查看全文）</th></tr></thead><tbody>' +
       handled.slice(0, 30).map(r => {
         const fb = r.user_feedback === 'accepted'
           ? '<span class="tag tag-done">已接受</span>'
           : '<span class="tag tag-error">已忽略</span>';
+        const preview = esc((r.suggestion_text||'').slice(0,100)) + ((r.suggestion_text||'').length > 100 ? '…' : '');
         return \`<tr><td class="muted">\${fmt(r.created_at)}</td><td class="mono">\${esc(r.alarm_id)}</td><td>\${fb}</td>
-          <td class="muted" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">\${esc((r.suggestion_text||'').slice(0,100))}</td></tr>\`;
+          <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;color:var(--blue)" onclick="showSuggestionModal(\${r.id})" title="点击查看完整内容">\${preview}</td></tr>\`;
       }).join('') +
       '</tbody></table></div>';
   } catch { }
@@ -946,6 +964,50 @@ async function submitFeedback(id, feedback) {
       }
     }
   } catch(e) { alert('提交失败: '+e.message); }
+}
+
+// ══════════════════════════════════════════════════
+//  AI 改进建议全文弹窗
+// ══════════════════════════════════════════════════
+const _suggestionTexts = {};
+
+function showSuggestionModal(id) {
+  const text = _suggestionTexts[id] || '';
+  document.getElementById('modal-title').textContent = 'AI 改进建议详情';
+  document.getElementById('modal-sub').textContent = '';
+  document.getElementById('modal-body').innerHTML =
+    '<div class="modal-section"><div style="white-space:pre-wrap;font-size:13px;line-height:1.8">' + esc(text) + '</div></div>';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+// ══════════════════════════════════════════════════
+//  EMS 工具查询告警
+// ══════════════════════════════════════════════════
+async function loadEmsAlarms() {
+  const tbody = document.getElementById('ems-alarms-tbody');
+  if (!tbody) return;
+  try {
+    const res = await fetch('/api/db/ems-alarms?limit=200');
+    const d = await res.json();
+    if (!d.records || !d.records.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">暂无数据（Agent 调用工具后自动填充）</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.records.map(r => \`
+      <tr>
+        <td class="mono">\${esc(String(r.ems_id))}</td>
+        <td>\${esc(r.name)}</td>
+        <td>\${esc(r.level)}</td>
+        <td class="muted">\${esc(r.device_type)}</td>
+        <td class="muted">\${fmt(r.alarm_time)}</td>
+        <td class="muted">\${r.recover_time ? fmt(r.recover_time) : '-'}</td>
+        <td><span class="tag \${r.source==='realtime'?'tag-processing':'tag-done'}">\${r.source==='realtime'?'实时':'历史'}</span></td>
+        <td class="mono" style="font-size:11px">\${esc(r.alarm_id)}</td>
+      </tr>
+    \`).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty" style="color:var(--red)">加载失败: ' + esc(e.message) + '</td></tr>';
+  }
 }
 
 // ══════════════════════════════════════════════════
@@ -1053,6 +1115,13 @@ export function startStatusServer(port = 3000, alarmQueue?: AlarmQueue) {
       snapshot: snapshot ? JSON.parse(snapshot.snapshot_json) : null,
       capturedAt: snapshot?.captured_at ?? null,
     });
+  });
+
+  // GET /api/db/ems-alarms?limit=200 → EMS 工具查询告警列表
+  app.get('/api/db/ems-alarms', (_req, res) => {
+    const { limit } = _req.query as Record<string, string | undefined>;
+    const records = queryRecentEmsAlarms(limit ? parseInt(limit, 10) : 200);
+    res.json({ total: records.length, records });
   });
 
   // GET /api/db/token-stats → Token 用量统计

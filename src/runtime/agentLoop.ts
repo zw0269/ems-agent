@@ -6,6 +6,8 @@ import { buildSystemPrompt, buildUserMessage, buildSelfReflectionPrompt } from '
 import { TOOLS_DEFINITION } from '../tools/index.js';
 import { logger } from '../utils/logger.js';
 import { insertSelfImprovement } from '../db/selfImprovementRepository.js';
+import { upsertEmsAlarms } from '../db/emsAlarmRepository.js';
+import type { AlarmItem } from '../types/index.js';
 
 /**
  * Agent 运行时核心
@@ -135,6 +137,13 @@ export class AgentLoop {
 
         ctx.addAssistant('', [{ id: callId, name: response.toolName, args: response.args }]);
         const result = await this.toolRouter.run(response.toolName, response.args);
+
+        // 保存告警类工具调用结果到数据库
+        if (Array.isArray(result) && (response.toolName === 'getRealTimeAlarms' || response.toolName === 'getHistoryAlarms')) {
+          const source = response.toolName === 'getRealTimeAlarms' ? 'realtime' : 'history';
+          upsertEmsAlarms(alarm.alarmId, source, result as AlarmItem[]);
+        }
+
         ctx.addToolResult(response.toolName, result, callId);
         continue;
       }

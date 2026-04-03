@@ -96,6 +96,27 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_self_improvements_feedback
       ON self_improvements(user_feedback);
+
+    -- LLM 工具调用返回的 EMS 告警数据
+    CREATE TABLE IF NOT EXISTS ems_alarms (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      ems_id       INTEGER NOT NULL,
+      alarm_id     TEXT    NOT NULL,
+      source       TEXT    NOT NULL,
+      name         TEXT    NOT NULL,
+      level        TEXT    NOT NULL,
+      device_type  TEXT    NOT NULL,
+      alarm_time   TEXT    NOT NULL,
+      recover_time TEXT,
+      created_at   TEXT    NOT NULL,
+      UNIQUE(ems_id, alarm_id, source)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ems_alarms_alarm_id
+      ON ems_alarms(alarm_id);
+
+    CREATE INDEX IF NOT EXISTS idx_ems_alarms_created_at
+      ON ems_alarms(created_at DESC);
   `);
 
   // 迁移：对已有数据库补充 token 字段（IF NOT EXISTS 语义通过 try/catch 模拟）
