@@ -31,7 +31,7 @@ export class AlarmQueue {
 
     this.pending.push(alarm);
     
-    // 优先级排序（P0 优先）
+    // 优先级排序（P3 最严重，最优先）
     this.pending.sort((a, b) => {
       const pA = PRIORITY_ORDER[a.priority] ?? 2;
       const pB = PRIORITY_ORDER[b.priority] ?? 2;
@@ -50,7 +50,7 @@ export class AlarmQueue {
 
   /**
    * 弹出指定优先级的第一个告警（不影响其他优先级的顺序）
-   * 用于 P0 独立消费者快速通道
+   * 用于 P3 独立消费者快速通道
    */
   popByPriority(priority: string): Alarm | undefined {
     const idx = this.pending.findIndex(a => a.priority === priority);

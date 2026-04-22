@@ -4,6 +4,7 @@ import { Heartbeat } from './gateway/heartbeat.js';
 import { AlarmQueue } from './gateway/alarmQueue.js';
 import { SessionManager } from './gateway/sessionManager.js';
 import { AgentLoop } from './runtime/agentLoop.js';
+import { ShadowRunner } from './runtime/shadowRunner.js';
 import { checkThresholds } from './config/thresholds.js';
 import { ALARM_PRIORITY } from './config/alarmPriority.js';
 import { getHomePage, getBmsYx, getPcsYc, getPcsYx, getHistoryAlarms } from './tools/queryEms.js';
@@ -13,7 +14,7 @@ import { startStatusServer } from './server/statusServer.js';
 import { statusStore } from './server/statusStore.js';
 import { logger } from './utils/logger.js';
 import { getDb } from './db/database.js';
-import { insertAlarm, updateAlarmFinished } from './db/alarmRepository.js';
+import { insertAlarm, updateAlarmFinished, recoverStaleProcessingAlarms } from './db/alarmRepository.js';
 import { insertRealtimeSnapshot } from './db/realtimeSnapshotRepository.js';
 import { aggregateAcceptedSuggestions } from './db/selfImprovementRepository.js';
 import type { Alarm } from './types/index.js';
@@ -87,11 +88,11 @@ async function processAlarm(alarm: Alarm) {
   statusStore.startAlarm(alarm);
   insertAlarm(alarm, alarm.alarmId.startsWith('TEST-'));
 
-  // EXP-1：P3 告警（通讯延迟类）跳过 LLM，直接记日志存库，节省 API 调用费用
-  if (alarm.priority === 'P3') {
-    const conclusion = `[P3 告警] ${alarm.alarmType} 为低优先级通讯类告警，已记录，无需 LLM 分析。如持续出现请人工排查通讯链路。`;
+  // EXP-1：P0 告警（低优先级提示类）跳过 LLM，直接记日志存库，节省 API 调用费用
+  if (alarm.priority === 'P0') {
+    const conclusion = `[P0 告警] ${alarm.alarmType} 为低优先级提示类告警，已记录，无需 LLM 分析。如持续出现请人工排查。`;
     const durationMs = Date.now() - t0;
-    logger.info('Agent', 'P3 告警跳过 LLM，直接记录', { alarmId: alarm.alarmId, alarmType: alarm.alarmType });
+    logger.info('Agent', 'P0 告警跳过 LLM，直接记录', { alarmId: alarm.alarmId, alarmType: alarm.alarmType });
     statusStore.finishAlarm(alarm.alarmId, conclusion, false);
     updateAlarmFinished(alarm.alarmId, conclusion, false, durationMs);
     return;
@@ -114,6 +115,13 @@ async function processAlarm(alarm: Alarm) {
       violationCount: violations.length,
       violations: violations.map(v => v.message),
     });
+
+    // E4 Shadow Mode：并行跑候选 prompt（fire-and-forget，不阻塞主流程）
+    if (ShadowRunner.isEnabled()) {
+      new ShadowRunner().run(alarm, { realtime, history, violations }).catch(err =>
+        logger.warn('Agent', 'Shadow 推理异常（非阻塞）', { alarmId: alarm.alarmId, error: (err as Error).message }),
+      );
+    }
 
     let conclusion: string;
 
@@ -161,6 +169,11 @@ async function main() {
   // 1. 初始化数据库（确保表结构就绪）
   getDb();
 
+  // R2 崩溃恢复：将滞留 processing 的告警强制置 error
+  const staleMinutes = parseInt(process.env['RECOVERY_STALE_MINUTES'] ?? '5', 10);
+  const recovered = recoverStaleProcessingAlarms(staleMinutes);
+  logger.info('Agent', `R2 崩溃恢复扫描完成，已修复 ${recovered} 条滞留告警`, { staleMinutes });
+
   const statusPort = parseInt(process.env['STATUS_PORT'] ?? '3000', 10);
   const apiOk = await checkLLMConnectivity();
   statusStore.setLLMApiStatus(apiOk);
@@ -186,27 +199,27 @@ async function main() {
     aggregateAcceptedSuggestions();
   });
 
-  // 5. EXP-2：P0 独立消费者（200ms 轮询，不 await，并发执行，不阻塞主队列）
+  // 5. EXP-2：P3 独立消费者（200ms 轮询，不 await，并发执行，不阻塞主队列）
   setInterval(() => {
-    const p0 = alarmQueue.popByPriority('P0');
-    if (!p0) return;
-    if (!p0.priority) p0.priority = 'P0';
-    sessionManager.start(p0.alarmId);
+    const p3 = alarmQueue.popByPriority('P3');
+    if (!p3) return;
+    if (!p3.priority) p3.priority = 'P3';
+    sessionManager.start(p3.alarmId);
     statusStore.incrementSession();
-    logger.info('Agent', 'P0 告警进入快速通道', { alarmId: p0.alarmId });
-    processAlarm(p0)
-      .catch(err => logger.error('Agent', 'P0 快速通道异常', { alarmId: p0.alarmId, error: (err as Error).message }))
-      .finally(() => { sessionManager.finish(p0.alarmId); statusStore.decrementSession(); });
+    logger.info('Agent', 'P3 告警进入快速通道', { alarmId: p3.alarmId });
+    processAlarm(p3)
+      .catch(err => logger.error('Agent', 'P3 快速通道异常', { alarmId: p3.alarmId, error: (err as Error).message }))
+      .finally(() => { sessionManager.finish(p3.alarmId); statusStore.decrementSession(); });
   }, 200);
 
-  // 6. 主消费循环（P1/P2/P3）
+  // 6. 主消费循环（P2/P1/P0）
   setInterval(async () => {
     statusStore.updateQueueLength(alarmQueue.length);
 
     const alarm = alarmQueue.pop();
     if (!alarm) return;
 
-    if (!alarm.priority) alarm.priority = ALARM_PRIORITY[alarm.alarmType] ?? 'P2';
+    if (!alarm.priority) alarm.priority = ALARM_PRIORITY[alarm.alarmType] ?? 'P1';
 
     sessionManager.start(alarm.alarmId);
     statusStore.incrementSession();

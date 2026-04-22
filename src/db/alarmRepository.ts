@@ -178,6 +178,124 @@ export function queryAlarmTrend(hours = 24): Array<{ hour: string; count: number
 }
 
 /**
+ * R2 崩溃恢复：将 >staleMinutes 仍处于 processing 的告警强制置 error
+ * 启动时调用一次，避免进程崩溃导致记录永远卡在 processing
+ * 返回被修复的告警数量
+ */
+export function recoverStaleProcessingAlarms(staleMinutes = 5): number {
+  try {
+    const db = getDb();
+    // 以北京时间字符串比较：当前时刻减 staleMinutes
+    const cutoffBeijing = new Date(Date.now() + 8 * 3600000 - staleMinutes * 60000)
+      .toISOString()
+      .replace('Z', '+08:00');
+
+    const result = db.prepare(`
+      UPDATE alarm_records
+      SET
+        status      = 'error',
+        finished_at = @finished_at,
+        conclusion  = COALESCE(conclusion, '[Recovery] 进程中断或重启，告警强制标记为 error。请检查日志复盘。')
+      WHERE status = 'processing'
+        AND started_at < @cutoff
+    `).run({
+      finished_at: nowBeijing(),
+      cutoff:      cutoffBeijing,
+    });
+
+    const changed = result.changes ?? 0;
+    if (changed > 0) {
+      logger.warn('AlarmRepository', 'R2 恢复：将滞留 processing 告警置 error', {
+        count: changed,
+        staleMinutes,
+      });
+    }
+    return changed;
+  } catch (err: unknown) {
+    logger.error('AlarmRepository', 'R2 恢复扫描失败', { error: (err as Error).message });
+    return 0;
+  }
+}
+
+/**
+ * R2 对账：核对告警终态分布
+ * 外部可对比 Source（心跳拉到的 ems_alarms count）== done + error + processing
+ */
+export function reconcileAlarmStates(sinceHours = 24): {
+  total: number;
+  done: number;
+  error: number;
+  processing: number;
+  sinceHours: number;
+  balanced: boolean;
+} {
+  try {
+    const row = getDb().prepare(`
+      SELECT
+        COUNT(*)                                                     AS total,
+        SUM(CASE WHEN status='done'       THEN 1 ELSE 0 END)         AS done,
+        SUM(CASE WHEN status='error'      THEN 1 ELSE 0 END)         AS error,
+        SUM(CASE WHEN status='processing' THEN 1 ELSE 0 END)         AS processing
+      FROM alarm_records
+      WHERE started_at >= datetime('now', '-${sinceHours} hours')
+    `).get() as { total: number; done: number; error: number; processing: number };
+
+    return {
+      ...row,
+      sinceHours,
+      balanced: row.total === (row.done + row.error + row.processing),
+    };
+  } catch {
+    return { total: 0, done: 0, error: 0, processing: 0, sinceHours, balanced: false };
+  }
+}
+
+/**
+ * E6 延时分位统计：按告警类型聚合 P50/P95/P99，用于 SLA 监控
+ * 仅统计已完成告警（duration_ms 非空）
+ */
+export function queryAlarmLatencyPercentiles(sinceHours = 24): Array<{
+  alarmType: string;
+  count: number;
+  p50: number;
+  p95: number;
+  p99: number;
+}> {
+  try {
+    const rows = getDb().prepare(`
+      SELECT alarm_type AS alarmType, duration_ms
+      FROM alarm_records
+      WHERE duration_ms IS NOT NULL
+        AND started_at >= datetime('now', '-${sinceHours} hours')
+      ORDER BY alarm_type, duration_ms ASC
+    `).all() as Array<{ alarmType: string; duration_ms: number }>;
+
+    const groups = new Map<string, number[]>();
+    for (const r of rows) {
+      if (!groups.has(r.alarmType)) groups.set(r.alarmType, []);
+      groups.get(r.alarmType)!.push(r.duration_ms);
+    }
+
+    const pick = (sorted: number[], p: number) => {
+      if (sorted.length === 0) return 0;
+      const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * p));
+      return sorted[idx] ?? 0;
+    };
+
+    return Array.from(groups.entries()).map(([alarmType, durations]) => ({
+      alarmType,
+      count: durations.length,
+      p50: pick(durations, 0.50),
+      p95: pick(durations, 0.95),
+      p99: pick(durations, 0.99),
+    })).sort((a, b) => b.count - a.count);
+  } catch (err: unknown) {
+    logger.error('AlarmRepository', '查询告警延时分位失败', { error: (err as Error).message });
+    return [];
+  }
+}
+
+/**
  * 统计各状态数量
  */
 export function queryStats(): { total: number; done: number; error: number; processing: number } {

@@ -1,7 +1,7 @@
 import { LLMClient } from '../llm/client.js';
 import { ToolRouter } from './toolRouter.js';
 import { ContextManager } from './contextManager.js';
-import type { Alarm, LLMResponse } from '../types/index.js';
+import type { Alarm } from '../types/index.js';
 import { buildSystemPrompt, buildUserMessage, buildSelfReflectionPrompt } from '../llm/prompts.js';
 import { TOOLS_DEFINITION } from '../tools/index.js';
 import { logger } from '../utils/logger.js';
@@ -13,15 +13,20 @@ import type { AlarmItem } from '../types/index.js';
  * Agent 运行时核心
  * 硬件故障：单次 LLM 调用（runOnce）
  * 软件故障：while 循环 + 工具调用（run）
+ *
+ * E2 Token 熔断：循环内累计 input+output token，超过 LLM_MAX_TOKENS_PER_ALARM
+ * （默认 200000）立即降级返回，防止单条告警吞掉巨额成本。
  */
 export class AgentLoop {
   private llm: LLMClient;
   private toolRouter: ToolRouter;
   private maxIterations = 20;
+  private tokenCapPerAlarm: number;
 
   constructor() {
     this.llm = new LLMClient();
     this.toolRouter = new ToolRouter();
+    this.tokenCapPerAlarm = parseInt(process.env['LLM_MAX_TOKENS_PER_ALARM'] ?? '200000', 10);
   }
 
   /**
@@ -40,7 +45,7 @@ export class AgentLoop {
     ctx.addSystem(buildSystemPrompt('hardware'));
     ctx.addUser(buildUserMessage(alarm, { realtime, history, violations }));
 
-    const response: LLMResponse = await this.llm.call(
+    const response = await this.llm.call(
       ctx.get(),
       undefined,
       { alarmId: alarm.alarmId, callIndex: 0 },
@@ -81,17 +86,38 @@ export class AgentLoop {
     ctx.addSystem(buildSystemPrompt('software'));
     ctx.addUser(buildUserMessage(alarm, initialData));
 
+    let cumulativeTokens = 0;
+
     for (let i = 0; i < this.maxIterations; i++) {
       logger.info('AgentLoop', `迭代 ${i + 1}/${this.maxIterations}`, {
         alarmId: alarm.alarmId,
         iteration: i + 1,
+        cumulativeTokens,
       });
 
-      const response: LLMResponse = await this.llm.call(
+      // E2 Token 熔断：进入本轮前先判断累计是否已超限
+      if (cumulativeTokens >= this.tokenCapPerAlarm) {
+        const msg = `[Agent] Token 用量已达上限 ${this.tokenCapPerAlarm}（累计 ${cumulativeTokens}），强制终止并降级。请人工介入分析。`;
+        logger.warn('AgentLoop', 'Token 熔断触发', {
+          alarmId: alarm.alarmId,
+          iteration: i + 1,
+          cumulativeTokens,
+          cap: this.tokenCapPerAlarm,
+        });
+        this.runSelfReflection(alarm, msg, i).catch(err =>
+          logger.warn('AgentLoop', '自我反思失败（非阻塞）', { alarmId: alarm.alarmId, error: (err as Error).message }),
+        );
+        return msg;
+      }
+
+      const response = await this.llm.call(
         ctx.get(),
         TOOLS_DEFINITION,
         { alarmId: alarm.alarmId, callIndex: i },
       );
+
+      // 累计本轮真实计费 token（输入+输出，cache read 仅作指标不再次计费）
+      cumulativeTokens += response.stats.inputTokens + response.stats.outputTokens;
 
       if (response.type === 'final_answer') {
         let conclusion = response.text?.trim() || '[Agent] LLM 返回内容为空，请检查模型配置或日志。';
@@ -176,7 +202,7 @@ export class AgentLoop {
       reflCtx.addSystem(system);
       reflCtx.addUser(user);
 
-      const response: LLMResponse = await this.llm.call(
+      const response = await this.llm.call(
         reflCtx.get(),
         undefined,
         { alarmId: alarm.alarmId, callIndex: -1 },

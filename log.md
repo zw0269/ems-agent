@@ -500,3 +500,145 @@ Express HTTP 状态面板服务器。
 - `openai: ^4.98.0`（多 provider LLM 支持）
 - `express: ^5.2.1`（状态面板服务器）
 - `@types/express`（开发依赖）
+
+---
+
+## 2026-04-22（PRIORITY-FLIP）— 告警等级语义翻转（P3 最严重）+ 经验沉淀精炼
+
+### 背景
+原约定 `P0=最严重、P3=最轻` 与现场运维团队"级别数字越大越严重"的习惯相反，且与上游 EMS 接口 `level="3"=一级告警`的语义不一致。本轮统一翻转为 **P3 最严重、P0 最轻**。
+
+### [修改] `src/config/alarmPriority.ts`
+- `ALARM_PRIORITY` 表全量翻转：`battery_smoke/fire_alarm/emergency_stop` 从 P0 → P3；`cell_voltage_high/cell_temp_high/insulation_error/pcs_communication_lost/pcs_grid_error` 从 P1 → P2；`soc_low/fan_error/comm_error` 从 P2 → P1。
+- `PRIORITY_ORDER` 权重翻转：`P3:0, P2:1, P1:2, P0:3`（数值越小越先处理）。
+- 头部注释重写为"P3 紧急 / P2 重要 / P1 一般 / P0 提示"。
+
+### [修改] `src/index.ts`
+- EXP-1 早退出分支：`P3 跳过 LLM` → `P0 跳过 LLM`。
+- EXP-2 快速通道：`popByPriority('P0')` → `popByPriority('P3')`，局部变量 `p0 → p3`，日志文案同步。
+- 主消费循环注释 "P1/P2/P3" → "P2/P1/P0"；未知类型 fallback `'P2'` → `'P1'`。
+
+### [修改] `src/notifier/index.ts`
+- 邮件/钉钉接收优先级从 `['P0','P1','P2']` → `['P3','P2','P1']`。
+- 仅日志分支从 `P3 仅日志` → `P0 仅日志`。
+
+### [修改] `src/server/statusServer.ts`
+- 下拉选项翻转：`P3 紧急 / P2 重要 / P1 一般（默认选中）/ P0 提示`。
+- `/api/test-alarm` fallback `'P2'` → `'P1'`。
+
+### [修改] `src/tools/queryBms.ts`
+- `toAlarmPriority` 的 map 保持数字对齐（`level="3"→P3`），但注释明示"P3 最严重"；unknown fallback `'P2'` → `'P1'`。
+
+### [修改] `src/gateway/alarmQueue.ts`
+- 排序注释 "P0 优先" → "P3 最严重最优先"；`popByPriority` JSDoc 中 P0 → P3。
+
+### [重写] `KNOWLEDGE.md`
+新增告警优先级语义表（含 EMS level 对照）+ **R1–R5 五条稳定推理规则**：
+- **R1** 数据一致性前置校验（状态 vs 功率、分压和 vs 总压、PCS vs 电表）
+- **R2** 定值未知时不下绝对结论
+- **R3** 振荡/抖动模式优先识别（30秒内≥2次跳抖动分支）
+- **R4** VF 状态三分类（保护跳闸 / 孤岛带载 / 标志位误置）
+- **R5** 工具调用批量化（首轮并行拉全景上下文）
+- SOP 翻转：P3 15 分钟响应、P0 仅入库。
+
+### [重写] `self-improvement.md`
+- 原 16+ 条按时间堆叠的零散建议 → 精炼版：**D1–D5 高频缺陷表**（每条 ≥2 案例）+ **I1–I5 核心改进方向**（引用 `KNOWLEDGE.md` 的 R1-R5）。
+- 新增"最近增量案例（30 天）"区，等待聚类脚本追加。
+- 顶部声明语义约定（P3 最严重），与历史旧语义矛盾的表述以新约定为准。
+
+---
+
+## 2026-04-22（RESILIENCE）— 韧性、审计、可观测性十项（E1/E2/E4/E5/E6/E7 + R2/R3/R4/R5）
+
+### 背景
+以"AI 数据修复工程师"和"AI 工程师"双视角对项目做评估，落地 10 项改进（未执行 R1 本地 provider 与 E3 降级策略，按用户指示保留云端单 provider）。
+
+### [修改] `src/llm/client.ts` — E1 Prompt Caching + E5 可复现性 + R5 审计追踪
+- **E1**：`callAnthropic` 将 system prompt 改为 `[{type:'text', text, cache_control:{type:'ephemeral'}}]` block 格式；从 `usage` 读 `cache_read_input_tokens` / `cache_creation_input_tokens` 入库。20 轮循环后 19 轮按 10% 价格命中，单告警成本降 ≥50%。
+- **E5**：默认 `temperature=0.1`（可经 `LLM_TEMPERATURE` 覆盖）；OpenAI 路径传 `seed`（由 `alarmId` SHA-256 派生，同告警重跑稳定）。
+- **R5**：每次调用计算 `promptHash = SHA-256(system prompt)` 入库；新增 `LlmCallResult` 返回类型（`LLMResponse & { stats }`），外层可读 `inputTokens / outputTokens / cacheReadTokens / cacheWriteTokens`。
+- 失败调用也通过 `insertLlmCall` 写一条 `is_error=1` 的记录（保证"每次 LLM 调用都有回执"的审计铁律）。
+
+### [修改] `src/runtime/agentLoop.ts` — E2 Token 熔断
+- 构造器读 `LLM_MAX_TOKENS_PER_ALARM`（默认 200000）。
+- `run()` 循环内维护 `cumulativeTokens += inputTokens + outputTokens`，每轮进入前检查，超限直接降级为"Token 用量达上限，请人工介入"文案并结束，防止复杂告警吞掉巨额费用。
+- `runOnce` / `runSelfReflection` 同步改为使用 `LlmCallResult` 返回类型（去掉显式 `LLMResponse` 注解，走类型推断）。
+
+### [修改] `src/runtime/toolRouter.ts` — R3 工具参数 schema 校验
+- 新增 `validateToolArgs(toolName, args)`：从 `TOOLS_DEFINITION` 构建 `SCHEMA_MAP`；检查必填、类型（string/number/array）、数组成员类型、字符串长度上限（顶层 512、数组成员 256）。
+- 执行前先校验，失败直接返回 `{ error, hint }`，不调 HTTP；校验函数 `export` 供单元测试。
+
+### [修改] `src/db/database.ts` — R5/E4/E6 schema 迁移
+- `llm_calls` 用 try/catch `ALTER TABLE ADD COLUMN` 方式新增 6 列：`prompt_hash TEXT`、`shadow_group TEXT DEFAULT 'prod'`、`cache_read_tokens INTEGER`、`cache_write_tokens INTEGER`、`tool_name TEXT`、`is_error INTEGER`。
+- 老库零迁移成本自动升级。
+
+### [修改] `src/db/llmCallRepository.ts`
+- `insertLlmCall` 接口扩展：接受 `promptHash / shadowGroup / cacheReadTokens / cacheWriteTokens / toolName / isError`，全部写入 llm_calls。
+- 新增 `queryLlmMetrics(sinceHours)`：总调用数、失败率、cache 命中率、distinct prompt_hash 数、平均耗时。
+- 新增 `queryToolMetrics(sinceHours)`：按 `tool_name` 分组聚合失败率、平均延时。
+- 新增 `queryShadowComparison(alarmId)`：按 `shadow_group` 拆分 prod / shadow 调用链，供 side-by-side UI。
+
+### [修改] `src/db/alarmRepository.ts` — R2 崩溃恢复 + E6 延时分位
+- 新增 `recoverStaleProcessingAlarms(staleMinutes)`：启动时把 >staleMinutes（默认 5）仍 `processing` 的告警强制置 `error`，避免进程崩溃导致记录永久滞留。
+- 新增 `reconcileAlarmStates(sinceHours)`：对账 `total == done+error+processing`，不平衡时打 SEV1 日志。
+- 新增 `queryAlarmLatencyPercentiles(sinceHours)`：按 `alarm_type` 聚合 P50/P95/P99 耗时（Node 侧分位计算）。
+
+### [修改] `src/index.ts`
+- 启动流程新增 R2 恢复扫描，读 `RECOVERY_STALE_MINUTES`（默认 5）。
+- `processAlarm` 在主分析前 fire-and-forget 调用 `ShadowRunner.run(...)`（仅当 `SHADOW_ENABLED=true`）。
+
+### [新增] `src/runtime/shadowRunner.ts` — E4 Shadow Mode
+- `ShadowRunner.run(alarm, initialData)`：用主 LLM 单轮（无工具）跑一次候选 prompt，`shadow_group='shadow'` 入库，不发通知、不入 `alarm_records`。
+- 候选 prompt 通过 `SHADOW_PROMPT_APPEND` env 追加到 system prompt 末尾，便于灰度验证新规则。
+
+### [修改] `src/server/statusServer.ts`
+新增 3 个端点：
+- `GET /api/reconcile?hours=24` — R2 对账报告
+- `GET /api/metrics?hours=24` — E6 一站式指标（llm + tools + latency + reconcile）
+- `GET /api/shadow/compare?alarmId=xxx` — E4 prod vs shadow 对比
+
+### [新增] `scripts/cluster-reflections.ts` — R4 聚类反哺 self-improvement
+- **纯主 LLM 版**，复用 `LLMClient()`（等同主项目的 `LLM_PROVIDER / LLM_API_KEY / LLM_MODEL`），不调用任何 embedding 接口、不引入其他模型。
+- 流程：拉近 30 天 `self_improvements` → 一次性给 LLM 聚类（输出 JSON `{clusters:[{theme, ids}]}`）→ 每簇再调一次 LLM 归纳成 D/I 规则 → 追加到 `self-improvement.md` 末尾。
+- `npm run cluster-reflections` 触发；env：`CLUSTER_LOOKBACK_DAYS / CLUSTER_MAX_ITEMS / CLUSTER_MIN_SIZE`。
+
+### [新增] `tests/` — E7 单元测试（vitest）
+- `alarmQueue.test.ts`：P3 最严重排序、popByPriority、去重、processing 阻止入队（4 用例）
+- `toolRouter.test.ts`：R3 校验逻辑（未知工具、必填、类型、数组、超长、对象非对象）（8 用例）
+- `thresholds.test.ts`：SOC / 电压 / 频率 / 非数值 / 多越限（6 用例）
+- `contextManager.test.ts`：消息顺序、tool_calls 序列化、tool_call_id 关联、system 不被 compact 丢失（4 用例）
+- **合计 22 用例，全部通过**。
+
+### [新增] `vitest.config.ts` + `.github/workflows/ci.yml`
+- vitest 只包含 `tests/**/*.test.ts`。
+- GitHub Actions：Node 20、`npm ci` → `tsc --noEmit` → `npm test`。
+
+### [修改] `tsconfig.json`
+- 补 `include: ["src/**/*.ts"]` 和 `exclude: [tests, scripts, vitest.config.ts]`，隔离测试文件与 `rootDir` 冲突。
+
+### [修改] `package.json`
+- 新增 scripts：`cluster-reflections`、`test`（vitest run）、`test:watch`。
+- 移除旧 `test` 占位。
+- devDependencies 加 `vitest`。
+
+### [修改] `.env.example`
+新增：
+```
+LLM_TEMPERATURE=0.1
+LLM_MAX_TOKENS_PER_ALARM=200000
+SHADOW_ENABLED=false
+SHADOW_PROMPT_APPEND=
+RECOVERY_STALE_MINUTES=5
+CLUSTER_LOOKBACK_DAYS=30
+CLUSTER_MAX_ITEMS=100
+CLUSTER_MIN_SIZE=2
+```
+
+### 未执行（按用户要求）
+- **R1** 本地 provider（PII 合规）— 用户确认沿用单一云端 LLM
+- **E3** 降级策略（fallback provider / 规则兜底）— 暂不实施
+
+### 验证
+- `npx tsc --noEmit`：无错误
+- `npm test`：4 文件 22 用例全部通过
+- Schema 迁移采用 `ALTER TABLE ADD COLUMN` + try/catch，老库自动升级

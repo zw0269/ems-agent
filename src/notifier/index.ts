@@ -21,8 +21,8 @@ export async function notifyOperator(alarm: Alarm, conclusion: string) {
     alarmType: alarm.alarmType,
   });
 
-  // P0 / P1 / P2 → 邮件
-  if (['P0', 'P1', 'P2'].includes(alarm.priority) && operatorEmails.length > 0) {
+  // P3 / P2 / P1 → 邮件（严重度高的三档）
+  if (['P3', 'P2', 'P1'].includes(alarm.priority) && operatorEmails.length > 0) {
     const t0 = Date.now();
     try {
       await email.send({ to: operatorEmails, subject, body: conclusion });
@@ -40,8 +40,8 @@ export async function notifyOperator(alarm: Alarm, conclusion: string) {
     }
   }
 
-  // P0 / P1 / P2 → 钉钉
-  if (['P0', 'P1', 'P2'].includes(alarm.priority) && operatorDingTalkIds.length > 0) {
+  // P3 / P2 / P1 → 钉钉（严重度高的三档）
+  if (['P3', 'P2', 'P1'].includes(alarm.priority) && operatorDingTalkIds.length > 0) {
     const t0 = Date.now();
     try {
       await dingtalk.send({ userIds: operatorDingTalkIds, title: subject, content: conclusion });
@@ -59,9 +59,9 @@ export async function notifyOperator(alarm: Alarm, conclusion: string) {
     }
   }
 
-  // P3 → 仅日志
-  if (alarm.priority === 'P3') {
-    logger.info('Notifier', 'P3 告警，仅记录日志', {
+  // P0 → 仅日志
+  if (alarm.priority === 'P0') {
+    logger.info('Notifier', 'P0 告警，仅记录日志', {
       alarmId: alarm.alarmId,
       subject,
     });

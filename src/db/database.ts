@@ -123,6 +123,14 @@ export function getDb(): Database.Database {
   try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN input_tokens  INTEGER NOT NULL DEFAULT 0`); } catch { /* 列已存在，忽略 */ }
   try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0`); } catch { /* 列已存在，忽略 */ }
 
+  // 迁移：R5 审计追踪 + E4 Shadow Mode + cache 命中统计
+  try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN prompt_hash         TEXT    NOT NULL DEFAULT ''`); } catch { /* 列已存在，忽略 */ }
+  try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN shadow_group        TEXT    NOT NULL DEFAULT 'prod'`); } catch { /* 列已存在，忽略 */ }
+  try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN cache_read_tokens   INTEGER NOT NULL DEFAULT 0`); } catch { /* 列已存在，忽略 */ }
+  try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN cache_write_tokens  INTEGER NOT NULL DEFAULT 0`); } catch { /* 列已存在，忽略 */ }
+  try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN tool_name           TEXT`); } catch { /* 列已存在，忽略 */ }
+  try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN is_error            INTEGER NOT NULL DEFAULT 0`); } catch { /* 列已存在，忽略 */ }
+
   logger.info('Database', '数据库已初始化', { path: DB_PATH });
   return _db;
 }

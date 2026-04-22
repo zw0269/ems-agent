@@ -1,7 +1,7 @@
 import express from 'express';
 import { statusStore } from './statusStore.js';
-import { queryRecentAlarms, queryAlarmsByRange, queryStats, queryAlarmById, queryAlarmTrend } from '../db/alarmRepository.js';
-import { queryRecentLlmCalls, queryLlmCallsByAlarm, queryTokenStats } from '../db/llmCallRepository.js';
+import { queryRecentAlarms, queryAlarmsByRange, queryStats, queryAlarmById, queryAlarmTrend, reconcileAlarmStates, queryAlarmLatencyPercentiles } from '../db/alarmRepository.js';
+import { queryRecentLlmCalls, queryLlmCallsByAlarm, queryTokenStats, queryLlmMetrics, queryToolMetrics, queryShadowComparison } from '../db/llmCallRepository.js';
 import {
   queryPendingSelfImprovements,
   queryRecentSelfImprovements,
@@ -292,10 +292,10 @@ tr.clickable:hover td { background: rgba(99,102,241,.06); }
       <div class="form-group">
         <label>优先级</label>
         <select id="f-priority">
-          <option value="P0">P0 紧急</option>
-          <option value="P1">P1 重要</option>
-          <option value="P2" selected>P2 一般</option>
-          <option value="P3">P3 提示</option>
+          <option value="P3">P3 紧急</option>
+          <option value="P2">P2 重要</option>
+          <option value="P1" selected>P1 一般</option>
+          <option value="P0">P0 提示</option>
         </select>
       </div>
       <div class="form-group">
@@ -1061,6 +1061,41 @@ export function startStatusServer(port = 3000, alarmQueue?: AlarmQueue) {
     res.json(queryStats());
   });
 
+  // R2 对账：GET /api/reconcile?hours=24
+  // 返回指定时间窗口内 done/error/processing 的分布，以及 total == done+error+processing 是否成立
+  app.get('/api/reconcile', (req, res) => {
+    const hours = parseInt((req.query['hours'] as string) ?? '24', 10);
+    const report = reconcileAlarmStates(Number.isFinite(hours) ? hours : 24);
+    if (!report.balanced) {
+      logger.warn('StatusServer', 'R2 对账不平衡（SEV1 预警）', report);
+    }
+    res.json(report);
+  });
+
+  // E4 Shadow 对比：GET /api/shadow/compare?alarmId=xxx
+  app.get('/api/shadow/compare', (req, res) => {
+    const alarmId = (req.query['alarmId'] as string) ?? '';
+    if (!alarmId) {
+      res.status(400).json({ error: 'alarmId 必填' });
+      return;
+    }
+    res.json(queryShadowComparison(alarmId));
+  });
+
+  // E6 指标聚合：GET /api/metrics?hours=24
+  // 集中返回：LLM 质量、工具失败率、告警延时分位
+  app.get('/api/metrics', (req, res) => {
+    const hours = parseInt((req.query['hours'] as string) ?? '24', 10);
+    const window = Number.isFinite(hours) ? hours : 24;
+    res.json({
+      windowHours: window,
+      llm:       queryLlmMetrics(window),
+      tools:     queryToolMetrics(window),
+      latency:   queryAlarmLatencyPercentiles(window),
+      reconcile: reconcileAlarmStates(window),
+    });
+  });
+
   // GET /api/llm-calls?limit=50&alarmId=xxx
   app.get('/api/llm-calls', (_req, res) => {
     const { limit, alarmId } = _req.query as Record<string, string | undefined>;
@@ -1206,7 +1241,7 @@ export function startStatusServer(port = 3000, alarmQueue?: AlarmQueue) {
       faultCategory: validCategories.includes(faultCategory ?? '') ? (faultCategory as 'hardware' | 'software') : 'software',
       deviceId:      (deviceId ?? 'unknown').trim() || 'unknown',
       timestamp:     new Date(Date.now() + 8 * 3600000).toISOString().replace('Z', '+08:00'),
-      priority:      validPriorities.includes(priority ?? '') ? (priority as 'P0' | 'P1' | 'P2' | 'P3') : 'P2',
+      priority:      validPriorities.includes(priority ?? '') ? (priority as 'P0' | 'P1' | 'P2' | 'P3') : 'P1',
     };
 
     alarmQueue.push(alarm);

@@ -15,12 +15,14 @@ function toFaultCategory(deviceType: string): 'hardware' | 'software' {
 
 /**
  * 告警等级（level 字符串）→ AlarmPriority
+ * 语义：P3 最严重（紧急/一级），P0 最轻（提示/四级）
+ * level="3" → P3（紧急），level="0" → P0（提示）
  */
 function toAlarmPriority(level: string): 'P0' | 'P1' | 'P2' | 'P3' {
   const map: Record<string, 'P0' | 'P1' | 'P2' | 'P3'> = {
     '0': 'P0', '1': 'P1', '2': 'P2', '3': 'P3',
   };
-  return map[level] ?? 'P2';
+  return map[level] ?? 'P1';
 }
 
 /**

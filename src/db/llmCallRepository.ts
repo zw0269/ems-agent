@@ -13,6 +13,12 @@ export interface LlmCallRecord {
   duration_ms: number;
   input_tokens: number;
   output_tokens: number;
+  prompt_hash: string;
+  shadow_group: string;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  tool_name: string | null;
+  is_error: number;
   created_at: string;
 }
 
@@ -34,24 +40,42 @@ export function insertLlmCall(params: {
   durationMs: number;
   inputTokens?: number;
   outputTokens?: number;
+  promptHash?: string;
+  shadowGroup?: string;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  toolName?: string | null;
+  isError?: boolean;
 }): void {
   try {
     getDb().prepare(`
       INSERT INTO llm_calls
-        (alarm_id, call_index, provider, model, input_messages, output_json, duration_ms, input_tokens, output_tokens, created_at)
+        (alarm_id, call_index, provider, model, input_messages, output_json,
+         duration_ms, input_tokens, output_tokens,
+         prompt_hash, shadow_group, cache_read_tokens, cache_write_tokens, tool_name, is_error,
+         created_at)
       VALUES
-        (@alarm_id, @call_index, @provider, @model, @input_messages, @output_json, @duration_ms, @input_tokens, @output_tokens, @created_at)
+        (@alarm_id, @call_index, @provider, @model, @input_messages, @output_json,
+         @duration_ms, @input_tokens, @output_tokens,
+         @prompt_hash, @shadow_group, @cache_read_tokens, @cache_write_tokens, @tool_name, @is_error,
+         @created_at)
     `).run({
-      alarm_id:       params.alarmId,
-      call_index:     params.callIndex,
-      provider:       params.provider,
-      model:          params.model,
-      input_messages: JSON.stringify(params.inputMessages),
-      output_json:    JSON.stringify(params.output),
-      duration_ms:    params.durationMs,
-      input_tokens:   params.inputTokens  ?? 0,
-      output_tokens:  params.outputTokens ?? 0,
-      created_at:     nowBeijing(),
+      alarm_id:           params.alarmId,
+      call_index:         params.callIndex,
+      provider:           params.provider,
+      model:              params.model,
+      input_messages:     JSON.stringify(params.inputMessages),
+      output_json:        JSON.stringify(params.output),
+      duration_ms:        params.durationMs,
+      input_tokens:       params.inputTokens      ?? 0,
+      output_tokens:      params.outputTokens     ?? 0,
+      prompt_hash:        params.promptHash       ?? '',
+      shadow_group:       params.shadowGroup      ?? 'prod',
+      cache_read_tokens:  params.cacheReadTokens  ?? 0,
+      cache_write_tokens: params.cacheWriteTokens ?? 0,
+      tool_name:          params.toolName         ?? null,
+      is_error:           params.isError ? 1 : 0,
+      created_at:         nowBeijing(),
     });
   } catch (err: unknown) {
     logger.error('LlmCallRepository', '写入 LLM 调用记录失败', {
@@ -128,6 +152,131 @@ export function queryTokenStats(): {
   } catch (err: unknown) {
     logger.error('LlmCallRepository', '查询 Token 统计失败', { error: (err as Error).message });
     return { todayInput: 0, todayOutput: 0, todayCalls: 0, totalInput: 0, totalOutput: 0, totalCalls: 0 };
+  }
+}
+
+/**
+ * E6 指标聚合：最近 sinceHours 小时的 LLM 质量指标
+ * 包含：总调用数、失败率、cache 命中率、平均 prompt_hash 版本数（漂移指标）
+ */
+export function queryLlmMetrics(sinceHours = 24): {
+  sinceHours: number;
+  totalCalls: number;
+  errorCalls: number;
+  errorRate: number;
+  cacheHitRate: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
+  distinctPromptHashes: number;
+  avgDurationMs: number;
+} {
+  try {
+    const db = getDb();
+    const row = db.prepare(`
+      SELECT
+        COUNT(*)                                                            AS total_calls,
+        SUM(is_error)                                                       AS error_calls,
+        COALESCE(SUM(input_tokens),        0)                               AS in_tok,
+        COALESCE(SUM(output_tokens),       0)                               AS out_tok,
+        COALESCE(SUM(cache_read_tokens),   0)                               AS cache_read_tok,
+        COALESCE(SUM(cache_write_tokens),  0)                               AS cache_write_tok,
+        COUNT(DISTINCT prompt_hash)                                         AS distinct_hashes,
+        COALESCE(AVG(duration_ms),         0)                               AS avg_dur
+      FROM llm_calls
+      WHERE created_at >= datetime('now', '-${sinceHours} hours')
+    `).get() as {
+      total_calls: number; error_calls: number;
+      in_tok: number; out_tok: number;
+      cache_read_tok: number; cache_write_tok: number;
+      distinct_hashes: number; avg_dur: number;
+    };
+
+    const total = row.total_calls || 0;
+    const cacheRead = row.cache_read_tok || 0;
+    const cacheWrite = row.cache_write_tok || 0;
+    const cacheHitRate = (cacheRead + cacheWrite) > 0
+      ? cacheRead / (cacheRead + cacheWrite + (row.in_tok - cacheRead - cacheWrite))
+      : 0;
+
+    return {
+      sinceHours,
+      totalCalls:           total,
+      errorCalls:           row.error_calls || 0,
+      errorRate:            total > 0 ? (row.error_calls || 0) / total : 0,
+      cacheHitRate:         Number.isFinite(cacheHitRate) ? cacheHitRate : 0,
+      totalInputTokens:     row.in_tok,
+      totalOutputTokens:    row.out_tok,
+      totalCacheReadTokens: cacheRead,
+      totalCacheWriteTokens: cacheWrite,
+      distinctPromptHashes: row.distinct_hashes,
+      avgDurationMs:        Math.round(row.avg_dur),
+    };
+  } catch (err: unknown) {
+    logger.error('LlmCallRepository', '查询 LLM 指标失败', { error: (err as Error).message });
+    return {
+      sinceHours, totalCalls: 0, errorCalls: 0, errorRate: 0, cacheHitRate: 0,
+      totalInputTokens: 0, totalOutputTokens: 0, totalCacheReadTokens: 0, totalCacheWriteTokens: 0,
+      distinctPromptHashes: 0, avgDurationMs: 0,
+    };
+  }
+}
+
+/**
+ * E6 工具层指标：工具失败率（is_error=1 且 tool_name 非空）
+ */
+export function queryToolMetrics(sinceHours = 24): Array<{
+  toolName: string;
+  total: number;
+  errors: number;
+  errorRate: number;
+  avgDurationMs: number;
+}> {
+  try {
+    const rows = getDb().prepare(`
+      SELECT
+        tool_name                                         AS toolName,
+        COUNT(*)                                          AS total,
+        COALESCE(SUM(is_error), 0)                        AS errors,
+        COALESCE(AVG(duration_ms), 0)                     AS avgDurationMs
+      FROM llm_calls
+      WHERE created_at >= datetime('now', '-${sinceHours} hours')
+        AND tool_name IS NOT NULL
+        AND tool_name != ''
+      GROUP BY tool_name
+      ORDER BY total DESC
+    `).all() as Array<{ toolName: string; total: number; errors: number; avgDurationMs: number }>;
+    return rows.map(r => ({
+      ...r,
+      errorRate: r.total > 0 ? r.errors / r.total : 0,
+      avgDurationMs: Math.round(r.avgDurationMs),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * E4 Shadow 对比：按 alarmId 拉出 prod / shadow 的结论，供前端 side-by-side
+ */
+export function queryShadowComparison(alarmId: string): {
+  alarmId: string;
+  prod: LlmCallRecord[];
+  shadow: LlmCallRecord[];
+} {
+  try {
+    const all = getDb()
+      .prepare('SELECT * FROM llm_calls WHERE alarm_id = ? ORDER BY call_index ASC, created_at ASC')
+      .all(alarmId) as LlmCallRecord[];
+    return {
+      alarmId,
+      prod:   all.filter(r => r.shadow_group === 'prod' || !r.shadow_group),
+      shadow: all.filter(r => r.shadow_group === 'shadow'),
+    };
+  } catch (err: unknown) {
+    logger.error('LlmCallRepository', '查询 shadow 对比失败', { alarmId, error: (err as Error).message });
+    return { alarmId, prod: [], shadow: [] };
   }
 }
 
