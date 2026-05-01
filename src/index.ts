@@ -7,7 +7,7 @@ import { AgentLoop } from './runtime/agentLoop.js';
 import { ShadowRunner } from './runtime/shadowRunner.js';
 import { checkThresholds } from './config/thresholds.js';
 import { ALARM_PRIORITY } from './config/alarmPriority.js';
-import { getHomePage, getBmsYx, getPcsYc, getPcsYx, getHistoryAlarms } from './tools/queryEms.js';
+import { getHomePage, getBmsYx, getPcsYc, getPcsYx, getMeterYc, getHistoryAlarms } from './tools/queryEms.js';
 import { notifyOperator } from './notifier/index.js';
 import { checkLLMConnectivity } from './utils/healthCheck.js';
 import { startStatusServer } from './server/statusServer.js';
@@ -21,20 +21,28 @@ import type { Alarm } from './types/index.js';
 
 /**
  * 采集系统当前实时快照
- * 并行调用首页、BMS 遥信、PCS 遥测、PCS 遥信，合并为扁平对象供阈值检查和 LLM 分析
+ * P1-2: 增加电表数据并行采集，用于R1.3交叉验证（PCS采样vs电表采样）
+ * 并行调用首页、BMS 遥信、PCS 遥测、PCS 遥信、电表遥测，合并为扁平对象供阈值检查和 LLM 分析
  */
 async function gatherSnapshot(alarm: Alarm) {
-  const [homePage, bmsYx, pcsYc, pcsYx] = await Promise.all([
+  const [homePage, bmsYx, pcsYc, pcsYx, meterYc] = await Promise.all([
     getHomePage(),
     getBmsYx(),
     getPcsYc(),
     getPcsYx(),
+    getMeterYc({ index: 0 }).catch(() => []), // 电表数据可能不可用，容错处理
   ]);
 
   // 将 PCS 遥测列表转为 key→value 扁平对象
   const pcsYcMap: Record<string, number> = {};
   for (const item of pcsYc) {
     pcsYcMap[item.key] = item.value;
+  }
+
+  // P1-2: 将电表遥测列表转为 key→value 扁平对象（用于R1.3交叉验证）
+  const meterYcMap: Record<string, number> = {};
+  for (const item of meterYc) {
+    meterYcMap[item.key] = item.value;
   }
 
   // 活跃告警 / 故障点汇总（仅 value===true 的条目）
@@ -47,6 +55,8 @@ async function gatherSnapshot(alarm: Alarm) {
     ...homePage,
     // PCS 遥测扁平字段（包含 gridFrequency、pcsInsulationresistance、pcsLeakageCurrent、温度等）
     ...pcsYcMap,
+    // 电表遥测扁平字段（用于R1.3交叉验证）
+    ...meterYcMap,
     // 结构化告警摘要
     bmsActiveAlarms,
     pcsActiveFaults,
