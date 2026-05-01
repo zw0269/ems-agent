@@ -35,16 +35,4 @@ typings/
 # next.js
 .next
 
-# AI 操作日志（本地调试用，不提交）
-logs/
 
-# SQLite 数据库文件（本地数据，不提交）
-data/
-
-docs/
-
-self-improvement.md
-
-KNOWLEDGE.md
-
-ai-ops*
