@@ -1,6 +1,7 @@
 import express from 'express';
 import { statusStore } from './statusStore.js';
 import { queryRecentAlarms, queryAlarmsByRange, queryStats, queryAlarmById, queryAlarmTrend, reconcileAlarmStates, queryAlarmLatencyPercentiles } from '../db/alarmRepository.js';
+import { computeCurrentScore, queryHourlyTrend } from './healthScore.js';
 import { queryRecentLlmCalls, queryLlmCallsByAlarm, queryTokenStats, queryLlmMetrics, queryToolMetrics, queryShadowComparison } from '../db/llmCallRepository.js';
 import {
   queryPendingSelfImprovements,
@@ -251,6 +252,22 @@ tr.clickable:hover td { background: rgba(99,102,241,.06); }
 <!-- ════════════════ TAB: 概览 ════════════════ -->
 <div id="tab-overview" class="tab-panel active">
 <div class="page">
+  <!-- 系统健康度 KPI（顶部最大卡） -->
+  <div id="health-card" class="chart-wrap" style="display:flex;align-items:center;gap:24px;padding:18px 22px">
+    <div style="flex:0 0 auto;text-align:center">
+      <div class="stat-label" style="margin-bottom:4px">系统健康度</div>
+      <div id="health-score" style="font-size:48px;font-weight:700;line-height:1;color:#888">--</div>
+      <div id="health-level" style="font-size:11px;color:var(--muted);margin-top:6px">加载中…</div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+        <span class="stat-label">24 小时趋势</span>
+        <span id="health-breakdown" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+      <svg id="health-spark" viewBox="0 0 600 60" preserveAspectRatio="none" style="width:100%;height:60px"></svg>
+    </div>
+  </div>
+
   <div class="stats-grid" id="stats-grid"></div>
 
   <!-- 告警趋势图 -->
@@ -486,7 +503,49 @@ function switchTab(tab) {
 // ══════════════════════════════════════════════════
 //  概览 Tab
 // ══════════════════════════════════════════════════
+async function loadHealthScore() {
+  try {
+    const res = await fetch('/api/health-score');
+    const d = await res.json();
+    const color = d.score >= 90 ? '#3a7d44' : d.score >= 75 ? '#5a9b6c' : d.score >= 50 ? '#c08000' : '#b03030';
+    const levelLabel = { excellent: '优', good: '良', warning: '需关注', critical: '严重' }[d.level] || '-';
+    document.getElementById('health-score').style.color = color;
+    document.getElementById('health-score').textContent = d.score;
+    document.getElementById('health-level').textContent = levelLabel + ' · 近 24 小时';
+    document.getElementById('health-breakdown').textContent = (d.contributing || [])
+      .map(c => c.severity + '×' + c.count).join('  ') || '无告警';
+    drawHealthSpark(d.trend || []);
+  } catch(e) {
+    document.getElementById('health-score').textContent = '?';
+    document.getElementById('health-level').textContent = '加载失败';
+  }
+}
+
+function drawHealthSpark(points) {
+  const svg = document.getElementById('health-spark');
+  if (!points || !points.length) { svg.innerHTML = ''; return; }
+  const W = 600, H = 60, PAD = 4;
+  const n = points.length;
+  const xStep = (W - PAD*2) / Math.max(n - 1, 1);
+  const yScale = (H - PAD*2) / 100;
+  const pts = points.map((p, i) => ({
+    x: PAD + i * xStep,
+    y: H - PAD - p.score * yScale,
+    score: p.score,
+  }));
+  const area = 'M' + pts[0].x + ',' + (H - PAD) +
+    ' L' + pts.map(p => p.x + ',' + p.y).join(' L') +
+    ' L' + pts[pts.length-1].x + ',' + (H - PAD) + ' Z';
+  const polyline = pts.map(p => p.x + ',' + p.y).join(' ');
+  const lastScore = pts[pts.length-1].score;
+  const color = lastScore >= 90 ? '#3a7d44' : lastScore >= 75 ? '#5a9b6c' : lastScore >= 50 ? '#c08000' : '#b03030';
+  svg.innerHTML =
+    '<path d="' + area + '" fill="' + color + '22"/>' +
+    '<polyline points="' + polyline + '" fill="none" stroke="' + color + '" stroke-width="1.6"/>';
+}
+
 async function refreshOverview() {
+  loadHealthScore();
   try {
     const [statusRes, tokenRes, trendRes] = await Promise.all([
       fetch('/api/status'),
@@ -1095,6 +1154,13 @@ export function startStatusServer(port = 3000, alarmQueue?: AlarmQueue) {
 
   app.get('/api/db/stats', (_req, res) => {
     res.json(queryStats());
+  });
+
+  // 系统健康度评分（对标 Google SRE SLO + Datadog Service Health）
+  app.get('/api/health-score', (_req, res) => {
+    const current = computeCurrentScore();
+    const trend = queryHourlyTrend(24);
+    res.json({ ...current, trend });
   });
 
   // R2 对账：GET /api/reconcile?hours=24

@@ -139,6 +139,62 @@ ID: ${alarm.alarmId}
   `.trim();
 }
 
+// ─── Verifier 复核 Agent（多 Agent 协作，对抗自我确认偏差） ────────────────────
+
+/**
+ * 复核 Agent prompt
+ * 第一性原理：单 LLM 既当诊断医生又当复核医生 → 自我确认偏差（confirmation bias）
+ *           让另一个 LLM 用挑刺者视角检查 → 提升结论可靠性
+ *
+ * 仅 P3（最严重）告警触发，控制成本
+ */
+export const VERIFIER_SYSTEM_PROMPT = `
+你是储能告警分析的独立复核员（Verifier）。诊断 Agent 已给出结论，请你以"挑刺者"视角独立判断：
+
+【复核维度】
+1. 证据链是否真正支撑根因？还是只是相关性被当成因果？
+2. 操作建议是否合规且无安全红线？是否漏掉更高优先级的步骤？
+3. 置信度自评是否过高（傲慢）或过低（保守）？
+
+【输出格式 严格遵守】
+**复核结论**：agreed | partial | disagreed
+**异议要点**：[≤100 字，一句话指出最关键问题；若 agreed 则填 "无异议"]
+**置信度调整**：[整数 -30 到 +10，负值表示原结论过于自信，正值表示原结论过于保守]
+
+【判断口径】
+- 数据矛盾未解释 / 关键定值未读取 / 历史趋势未利用 → disagreed
+- 根因方向对但建议缺失关键步骤（如 SOE 调取）→ partial
+- 证据充分、建议合理、置信度匹配实际 → agreed
+
+【禁止】
+- 重复诊断 Agent 已述及的内容
+- 散文段落或多级标题
+- 仅作"看起来对"的肯定，必须给具体异议或具体加分理由
+`.trim();
+
+export function buildVerifierPrompt(
+  alarm: Alarm,
+  initialData: { realtime: object; violations: object[] },
+  conclusion: string,
+): { system: string; user: string } {
+  return {
+    system: VERIFIER_SYSTEM_PROMPT,
+    user: `
+【原告警】
+ID: ${alarm.alarmId}  类型: ${alarm.alarmType}  设备: ${alarm.deviceId}  时间: ${alarm.timestamp}
+
+【关键数据】
+越界: ${JSON.stringify(initialData.violations, null, 2)}
+实时: ${JSON.stringify(initialData.realtime, null, 2)}
+
+【诊断 Agent 的结论】
+${conclusion}
+
+请按格式输出复核结论。
+    `.trim(),
+  };
+}
+
 // ─── 自我反思（Self-Reflection）提示词 ────────────────────────────────────────
 
 export const SELF_REFLECTION_SYSTEM_PROMPT = `

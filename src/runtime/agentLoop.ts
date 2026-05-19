@@ -2,7 +2,8 @@ import { LLMClient } from '../llm/client.js';
 import { ToolRouter } from './toolRouter.js';
 import { ContextManager } from './contextManager.js';
 import type { Alarm } from '../types/index.js';
-import { buildSystemPrompt, buildUserMessage, buildSelfReflectionPrompt } from '../llm/prompts.js';
+import { buildSystemPrompt, buildUserMessage, buildSelfReflectionPrompt, buildVerifierPrompt } from '../llm/prompts.js';
+import { parseVerifier, mergeVerifierInto } from '../utils/conclusionParser.js';
 import { TOOLS_DEFINITION } from '../tools/index.js';
 import { logger } from '../utils/logger.js';
 import { insertSelfImprovement } from '../db/selfImprovementRepository.js';
@@ -50,7 +51,12 @@ export class AgentLoop {
       undefined,
       { alarmId: alarm.alarmId, callIndex: 0 },
     );
-    const conclusion = response.text?.trim() || '[Agent] LLM 返回内容为空，请检查模型配置或日志。';
+    let conclusion = response.text?.trim() || '[Agent] LLM 返回内容为空，请检查模型配置或日志。';
+
+    // P3 高严重度告警触发独立 Verifier Agent 复核
+    if (alarm.priority === 'P3') {
+      conclusion = await this.runVerification(alarm, { realtime, violations }, conclusion);
+    }
 
     logger.info('AgentLoop', '硬件故障分析完成', {
       alarmId: alarm.alarmId,
@@ -142,6 +148,11 @@ export class AgentLoop {
           continue; // 进入下一次迭代获取修正后的结论
         }
 
+        // P3 高严重度告警触发独立 Verifier Agent 复核（对抗自我确认偏差）
+        if (alarm.priority === 'P3') {
+          conclusion = await this.runVerification(alarm, initialData, conclusion);
+        }
+
         logger.info('AgentLoop', '软件故障分析完成，获得最终结论', {
           alarmId: alarm.alarmId,
           iterations: i + 1,
@@ -209,6 +220,49 @@ ${completedSteps.length > 0 ? completedSteps.slice(0, 5).map((s, i) => `${i + 1}
     );
 
     return fallback;
+  }
+
+  /**
+   * 多 Agent 复核：让独立 Verifier LLM 以"挑刺者"视角检查诊断结论
+   *
+   * 对抗自我确认偏差。仅 P3 告警触发（成本控制）。
+   * Verifier 失败时静默回退到原 conclusion，不阻塞主流程。
+   */
+  private async runVerification(
+    alarm: Alarm,
+    initialData: { realtime: object; violations: object[] },
+    conclusion: string,
+  ): Promise<string> {
+    const t0 = Date.now();
+    try {
+      const { system, user } = buildVerifierPrompt(alarm, initialData, conclusion);
+      const verifyCtx = new ContextManager();
+      verifyCtx.addSystem(system);
+      verifyCtx.addUser(user);
+
+      const response = await this.llm.call(
+        verifyCtx.get(),
+        undefined,
+        { alarmId: alarm.alarmId, callIndex: -2 }, // -2 区分 verifier，-1 是 self-reflection
+      );
+      const verifierText = response.text?.trim() ?? '';
+      const parsed = parseVerifier(verifierText);
+
+      logger.info('AgentLoop', 'Verifier 复核完成', {
+        alarmId: alarm.alarmId,
+        verdict: parsed.verdict,
+        confidenceDelta: parsed.confidenceDelta,
+        durationMs: Date.now() - t0,
+      });
+
+      return mergeVerifierInto(conclusion, parsed);
+    } catch (err: unknown) {
+      logger.warn('AgentLoop', 'Verifier 复核失败，回退原结论', {
+        alarmId: alarm.alarmId,
+        error: (err as Error).message,
+      });
+      return conclusion;
+    }
   }
 
   /**

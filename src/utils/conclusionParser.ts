@@ -98,3 +98,68 @@ export function confidenceCssColor(confidence: number): string {
   if (confidence >= 60) return '#c08000'; // 黄
   return '#b03030';                        // 红
 }
+
+// ─── Verifier 复核结论解析 ────────────────────────────────────────────────
+
+export type VerifierVerdict = 'agreed' | 'partial' | 'disagreed' | 'unknown';
+
+export interface ParsedVerifier {
+  verdict: VerifierVerdict;
+  dissent: string;             // 异议要点（≤100 字）
+  confidenceDelta: number;     // -30 ~ +10，0 表示未解析或无调整
+  raw: string;
+}
+
+export function parseVerifier(text: string): ParsedVerifier {
+  const result: ParsedVerifier = {
+    verdict: 'unknown',
+    dissent: '',
+    confidenceDelta: 0,
+    raw: text,
+  };
+  if (!text || typeof text !== 'string') return result;
+
+  const verdictMatch = text.match(/\*\*复核结论\*\*\s*[:：]\s*\[?(agreed|partial|disagreed)\]?/i);
+  if (verdictMatch && verdictMatch[1]) {
+    result.verdict = verdictMatch[1].toLowerCase() as VerifierVerdict;
+  }
+
+  const dissentMatch = text.match(/\*\*异议要点\*\*\s*[:：]\s*\[?([\s\S]*?)\]?(?=\n\s*\*\*置信度调整\*\*|$)/);
+  if (dissentMatch && dissentMatch[1]) {
+    result.dissent = dissentMatch[1].trim().slice(0, 200);
+  }
+
+  const deltaMatch = text.match(/\*\*置信度调整\*\*\s*[:：]\s*\[?(-?\d{1,2})\]?/);
+  if (deltaMatch && deltaMatch[1]) {
+    const n = parseInt(deltaMatch[1], 10);
+    if (n >= -30 && n <= 10) result.confidenceDelta = n;
+  }
+
+  return result;
+}
+
+/**
+ * 把 Verifier 结果融合进原 conclusion：
+ * - agreed: 不修改 conclusion，仅返回更新后的置信度
+ * - partial / disagreed: 在 conclusion 顶部加 [复核] 警告块，并调整置信度
+ */
+export function mergeVerifierInto(conclusion: string, verifier: ParsedVerifier): string {
+  if (verifier.verdict === 'agreed' || verifier.verdict === 'unknown') return conclusion;
+
+  const banner = `> **[复核 ${verifier.verdict}]** ${verifier.dissent || '存在异议，请人工二次确认'}` +
+    (verifier.confidenceDelta !== 0 ? `（置信度调整 ${verifier.confidenceDelta > 0 ? '+' : ''}${verifier.confidenceDelta}）` : '');
+
+  // 如果 conclusion 里有 **置信度**：XX，按 delta 调整
+  let adjusted = conclusion;
+  if (verifier.confidenceDelta !== 0) {
+    adjusted = adjusted.replace(
+      /(\*\*置信度\*\*\s*[:：]\s*)(\d{1,3})/,
+      (_match, prefix, num) => {
+        const newVal = Math.max(0, Math.min(100, parseInt(num, 10) + verifier.confidenceDelta));
+        return `${prefix}${newVal}`;
+      },
+    );
+  }
+
+  return `${banner}\n\n${adjusted}`;
+}
