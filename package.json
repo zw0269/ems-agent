@@ -6,6 +6,7 @@
     "start": "tsx src/index.ts",
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
+    "mcp-server": "tsx scripts/mcp-server.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -16,6 +17,7 @@
   "type": "module",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^25.5.0",
     "axios": "^1.14.0",
     "better-sqlite3": "^12.8.0",

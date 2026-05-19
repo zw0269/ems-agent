@@ -1,0 +1,12 @@
+{
+  "_comment": "示例：Claude Desktop / Cursor / Continue 接入本项目 MCP server 的配置。复制到对应 client 的 mcp-config.json 后调整路径与 EMS_BASE_URL。",
+  "mcpServers": {
+    "ems-agent": {
+      "command": "npx",
+      "args": ["tsx", "/绝对路径/ems-agent/scripts/mcp-server.ts"],
+      "env": {
+        "EMS_BASE_URL": "http://192.168.1.100:8080"
+      }
+    }
+  }
+}
