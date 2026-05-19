@@ -20,13 +20,13 @@ import type { AlarmItem } from '../types/index.js';
 export class AgentLoop {
   private llm: LLMClient;
   private toolRouter: ToolRouter;
-  private maxIterations = 5; // P0-3: 从20降至5，强制收敛推理
+  private maxIterations = 20; // 配合 token 上限 500k 与 prompt 精简化，给复杂软件故障留足空间
   private tokenCapPerAlarm: number;
 
   constructor() {
     this.llm = new LLMClient();
     this.toolRouter = new ToolRouter();
-    this.tokenCapPerAlarm = parseInt(process.env['LLM_MAX_TOKENS_PER_ALARM'] ?? '200000', 10);
+    this.tokenCapPerAlarm = parseInt(process.env['LLM_MAX_TOKENS_PER_ALARM'] ?? '500000', 10);
   }
 
   /**
@@ -72,7 +72,13 @@ export class AgentLoop {
    */
   async run(
     alarm: Alarm,
-    initialData: { realtime: object; history: object; violations: object[] },
+    initialData: {
+      realtime: object;
+      history: object;
+      violations: object[];
+      historicalCases?: unknown[];
+      historyWindowHours?: number;
+    },
   ): Promise<string> {
     const t0 = Date.now();
     logger.info('AgentLoop', '软件故障分析开始（Agent Loop）', {
@@ -175,34 +181,26 @@ export class AgentLoop {
       }
     }
 
-    // P0-3: 优化降级策略，输出已完成排查项而非简单报错
     const completedSteps = ctx.get()
       .filter(m => m.role === 'tool')
       .map(m => {
         const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-        return content.substring(0, 100); // 截取前100字符作为摘要
+        return content.substring(0, 100);
       });
 
-    const fallback = `[Agent] 分析超时，已达最大迭代次数 ${this.maxIterations}，强制终止并降级。
+    const fallback = `[Agent] 分析已达最大迭代次数 ${this.maxIterations}，结论降级。
 
-**已完成排查项**：
-${completedSteps.length > 0 ? completedSteps.map((s, i) => `${i + 1}. ${s}...`).join('\n') : '无'}
+**已完成排查**（${completedSteps.length} 项摘要，完整链路见 Web 面板）
+${completedSteps.length > 0 ? completedSteps.slice(0, 5).map((s, i) => `${i + 1}. ${s}`).join('\n') : '无'}
 
-**建议人工介入**：
-1. 检查告警是否为复杂故障（需多维度交叉验证）
-2. 检查是否缺少关键数据（如保护定值、SOE事件记录）
-3. 考虑增加领域知识库或典型故障模式
-
-**迭代次数告警**：当前设置为 ${this.maxIterations} 次，如频繁触发此限制，建议：
-- 优化工具调用策略（批量并行查询）
-- 补充典型故障模式决策树
-- 检查是否存在数据不一致导致的反复查询`;
+**建议**：本告警涉及多维度交叉验证，请人工介入复核 Web 面板的 LLM 调用链与实时快照。`;
 
     logger.warn('AgentLoop', '超过最大迭代次数，强制终止', {
       alarmId: alarm.alarmId,
       maxIterations: this.maxIterations,
       completedSteps: completedSteps.length,
       durationMs: Date.now() - t0,
+      diagnosticHints: ['批量并行查询优化', '补充典型故障模式决策树', '检查数据一致性反复查询'],
     });
 
     // fire-and-forget：自我反思不阻塞通知发送

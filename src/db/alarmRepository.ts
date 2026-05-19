@@ -15,7 +15,7 @@ export interface AlarmRecord {
   duration_ms: number | null;
   status: 'processing' | 'done' | 'error';
   conclusion: string | null;
-  is_test: number;  // 0 = 自动, 1 = 手动测试
+  is_test: number;  // 0 = 自动告警, 1 = 手动测试, 2 = 经验种子（不来自真实告警，用于 few-shot）
 }
 
 function nowBeijing(): string {
@@ -100,11 +100,14 @@ export function updateAlarmFinished(
 
 /**
  * 查询最近 N 条告警记录（默认 50）
+ * 默认排除 is_test=2 经验种子，避免运维误以为是真实告警
+ * includeSeed=true 时一并返回种子（用于运维主动审阅）
  */
-export function queryRecentAlarms(limit = 50): AlarmRecord[] {
+export function queryRecentAlarms(limit = 50, includeSeed = false): AlarmRecord[] {
   try {
+    const where = includeSeed ? '' : 'WHERE is_test != 2';
     return getDb()
-      .prepare('SELECT * FROM alarm_records ORDER BY started_at DESC LIMIT ?')
+      .prepare(`SELECT * FROM alarm_records ${where} ORDER BY started_at DESC LIMIT ?`)
       .all(limit) as AlarmRecord[];
   } catch (err: unknown) {
     logger.error('AlarmRepository', '查询告警记录失败', { error: (err as Error).message });
@@ -114,13 +117,16 @@ export function queryRecentAlarms(limit = 50): AlarmRecord[] {
 
 /**
  * 按时间范围查询（北京时间字符串，格式 YYYY-MM-DD 或 YYYY-MM-DDTHH:mm）
+ * 默认排除 is_test=2 经验种子
  */
-export function queryAlarmsByRange(startAt: string, endAt: string): AlarmRecord[] {
+export function queryAlarmsByRange(startAt: string, endAt: string, includeSeed = false): AlarmRecord[] {
   try {
+    const seedClause = includeSeed ? '' : 'AND is_test != 2';
     return getDb()
       .prepare(`
         SELECT * FROM alarm_records
         WHERE started_at >= ? AND started_at <= ?
+          ${seedClause}
         ORDER BY started_at DESC
       `)
       .all(startAt, endAt) as AlarmRecord[];
@@ -147,6 +153,7 @@ export function queryAlarmById(alarmId: string): AlarmRecord | undefined {
 /**
  * 查询最近 N 小时内每小时的告警数量（用于趋势图）
  * 返回 [{hour: 'HH:00', count: N}, ...]，最近 hours 个小时
+ * 注：排除 is_test=2 经验种子，避免污染趋势图
  */
 export function queryAlarmTrend(hours = 24): Array<{ hour: string; count: number }> {
   try {
@@ -156,6 +163,7 @@ export function queryAlarmTrend(hours = 24): Array<{ hour: string; count: number
         COUNT(*) AS count
       FROM alarm_records
       WHERE started_at >= datetime('now', '-${hours} hours')
+        AND is_test != 2
       GROUP BY hour_utc
       ORDER BY hour_utc ASC
     `).all() as Array<{ hour_utc: string; count: number }>;
@@ -238,6 +246,7 @@ export function reconcileAlarmStates(sinceHours = 24): {
         SUM(CASE WHEN status='processing' THEN 1 ELSE 0 END)         AS processing
       FROM alarm_records
       WHERE started_at >= datetime('now', '-${sinceHours} hours')
+        AND is_test != 2
     `).get() as { total: number; done: number; error: number; processing: number };
 
     return {
@@ -267,6 +276,7 @@ export function queryAlarmLatencyPercentiles(sinceHours = 24): Array<{
       FROM alarm_records
       WHERE duration_ms IS NOT NULL
         AND started_at >= datetime('now', '-${sinceHours} hours')
+        AND is_test != 2
       ORDER BY alarm_type, duration_ms ASC
     `).all() as Array<{ alarmType: string; duration_ms: number }>;
 
@@ -307,9 +317,42 @@ export function queryStats(): { total: number; done: number; error: number; proc
         SUM(CASE WHEN status='error'      THEN 1 ELSE 0 END) AS error,
         SUM(CASE WHEN status='processing' THEN 1 ELSE 0 END) AS processing
       FROM alarm_records
+      WHERE is_test != 2
     `).get() as { total: number; done: number; error: number; processing: number };
     return row;
   } catch {
     return { total: 0, done: 0, error: 0, processing: 0 };
+  }
+}
+
+/**
+ * Few-shot 注入：按 alarmType 检索"经验种子 + 近期真实告警"的混合案例
+ *
+ * - is_test=2（经验种子）：从 19 条历史反思中提炼的典型案例，永久保留
+ * - is_test=0（真实已完成告警）：近 N 天 status=done 的同类告警结论
+ * - 排序：种子优先（is_test=2 排前），真实告警按时间倒序
+ * - limit 默认 3，避免 prompt 膨胀
+ */
+export function queryHistoricalCasesByType(
+  alarmType: string,
+  limit = 3,
+  days = 30,
+): Array<Pick<AlarmRecord, 'alarm_id' | 'alarm_timestamp' | 'device_id' | 'conclusion' | 'is_test'>> {
+  try {
+    const cutoff = new Date(Date.now() + 8 * 3600000 - days * 86400000)
+      .toISOString().replace('Z', '+08:00');
+    return getDb().prepare(`
+      SELECT alarm_id, alarm_timestamp, device_id, conclusion, is_test
+      FROM alarm_records
+      WHERE alarm_type = ?
+        AND status = 'done'
+        AND conclusion IS NOT NULL
+        AND (is_test = 2 OR (is_test = 0 AND started_at >= ?))
+      ORDER BY (is_test = 2) DESC, started_at DESC
+      LIMIT ?
+    `).all(alarmType, cutoff, limit) as Array<Pick<AlarmRecord, 'alarm_id' | 'alarm_timestamp' | 'device_id' | 'conclusion' | 'is_test'>>;
+  } catch (err: unknown) {
+    logger.error('AlarmRepository', '同类告警案例检索失败', { alarmType, error: (err as Error).message });
+    return [];
   }
 }

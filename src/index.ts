@@ -13,7 +13,7 @@ import { startStatusServer } from './server/statusServer.js';
 import { statusStore } from './server/statusStore.js';
 import { logger } from './utils/logger.js';
 import { getDb } from './db/database.js';
-import { insertAlarm, updateAlarmFinished, recoverStaleProcessingAlarms } from './db/alarmRepository.js';
+import { insertAlarm, updateAlarmFinished, recoverStaleProcessingAlarms, queryHistoricalCasesByType } from './db/alarmRepository.js';
 import { insertRealtimeSnapshot } from './db/realtimeSnapshotRepository.js';
 import type { Alarm } from './types/index.js';
 
@@ -68,14 +68,25 @@ async function gatherSnapshot(alarm: Alarm) {
 }
 
 /**
- * 采集历史告警记录（最近 24 小时）
+ * 采集历史告警记录
+ * 默认 24h 窗口；若为空则自动扩展到 7 天（提升过往经验注入命中率）
  */
-async function gatherHistory(alarm: Alarm) {
+async function gatherHistory(alarm: Alarm): Promise<{ history: Awaited<ReturnType<typeof getHistoryAlarms>>; windowHours: number }> {
   const now = new Date();
   const fmt = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 19);
-  const endTime   = fmt(now);
-  const startTime = fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000));
-  return getHistoryAlarms({ startTime, endTime });
+
+  const h24 = await getHistoryAlarms({
+    startTime: fmt(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+    endTime:   fmt(now),
+  });
+  if (h24.length > 0) return { history: h24, windowHours: 24 };
+
+  logger.info('Agent', '24h 历史告警为空，扩展到 7 天窗口', { alarmId: alarm.alarmId });
+  const h7d = await getHistoryAlarms({
+    startTime: fmt(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)),
+    endTime:   fmt(now),
+  });
+  return { history: h7d, windowHours: 7 * 24 };
 }
 
 // AgentLoop 单例：避免每次告警重建 LLMClient（含 HTTP 连接池）
@@ -108,10 +119,14 @@ async function processAlarm(alarm: Alarm) {
 
   try {
     // 并行采集实时快照 + 历史告警
-    const [realtime, history] = await Promise.all([
+    const [realtime, historyResult] = await Promise.all([
       gatherSnapshot(alarm),
       gatherHistory(alarm),
     ]);
+    const { history, windowHours: historyWindowHours } = historyResult;
+
+    // Few-shot 注入：检索同 alarmType 的经验种子 + 近期真实告警结论
+    const historicalCases = queryHistoricalCasesByType(alarm.alarmType, 3, 30);
 
     const violations = checkThresholds(realtime);
     insertRealtimeSnapshot(alarm.alarmId, realtime);
@@ -120,6 +135,8 @@ async function processAlarm(alarm: Alarm) {
       alarmId: alarm.alarmId,
       realtimeKeys: Object.keys(realtime).length,
       historyCount: history.length,
+      historyWindowHours,
+      historicalCasesCount: historicalCases.length,
       violationCount: violations.length,
       violations: violations.map(v => v.message),
     });
@@ -136,7 +153,13 @@ async function processAlarm(alarm: Alarm) {
     if (alarm.faultCategory === 'hardware') {
       conclusion = await agentLoop.runOnce(alarm, realtime, history, violations);
     } else if (alarm.faultCategory === 'software') {
-      conclusion = await agentLoop.run(alarm, { realtime, history, violations });
+      conclusion = await agentLoop.run(alarm, {
+        realtime,
+        history,
+        violations,
+        historicalCases,
+        historyWindowHours,
+      });
     } else {
       conclusion = `[Agent] 故障类型未知 (faultCategory=${alarm.faultCategory})，请人工判断。`;
       logger.warn('Agent', '未知故障类型', { alarmId: alarm.alarmId, faultCategory: alarm.faultCategory });

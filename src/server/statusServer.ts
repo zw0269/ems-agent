@@ -334,6 +334,10 @@ tr.clickable:hover td { background: rgba(99,102,241,.06); }
         <option value="P2">P2</option><option value="P3">P3</option>
       </select>
       <input id="h-keyword" type="text" placeholder="关键词搜索…" style="width:180px" />
+      <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)">
+        <input id="h-include-seed" type="checkbox" onchange="loadHistory()" />
+        显示经验种子
+      </label>
       <button class="btn btn-primary" onclick="loadHistory()">搜索</button>
       <span id="h-total" class="muted" style="margin-left:auto"></span>
     </div>
@@ -652,9 +656,11 @@ async function loadHistory() {
   const kw = document.getElementById('h-keyword').value.toLowerCase();
   const status = document.getElementById('h-status').value;
   const priority = document.getElementById('h-priority').value;
+  const includeSeed = document.getElementById('h-include-seed').checked;
 
   try {
-    const res = await fetch('/api/db/alarms?limit=500');
+    const url = '/api/db/alarms?limit=500' + (includeSeed ? '&includeSeed=true' : '');
+    const res = await fetch(url);
     const d = await res.json();
     let records = d.records || [];
     if (status)   records = records.filter(r => r.status === status);
@@ -679,10 +685,14 @@ function renderHistoryPage() {
   if (!_historyData.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="empty">暂无记录</td></tr>';
   } else {
-    tbody.innerHTML = page.map((r, i) => \`
+    tbody.innerHTML = page.map((r, i) => {
+      const seedChip = r.is_test === 2
+        ? ' <span style="display:inline-block;padding:1px 6px;border-radius:10px;background:#fff3cd;color:#8a6d3b;font-size:11px;margin-left:4px">种子</span>'
+        : '';
+      return \`
       <tr class="clickable" onclick="openModal('\${esc(r.alarm_id)}')">
         <td class="muted">\${start+i+1}</td>
-        <td class="mono">\${esc(r.alarm_id)}</td>
+        <td class="mono">\${esc(r.alarm_id)}\${seedChip}</td>
         <td>\${esc(r.alarm_type)}</td>
         <td class="muted">\${esc(r.device_id)}</td>
         <td>\${pTag(r.priority)}</td>
@@ -691,7 +701,8 @@ function renderHistoryPage() {
         <td class="muted">\${fmt(r.started_at)}</td>
         <td><div class="conclusion-cell">\${esc(r.conclusion||'-')}</div></td>
       </tr>
-    \`).join('');
+    \`;
+    }).join('');
   }
   const total = _historyData.length;
   const pages = Math.ceil(total / _hPageSize) || 1;
@@ -1047,12 +1058,13 @@ export function startStatusServer(port = 3000, alarmQueue?: AlarmQueue) {
   // GET /api/db/alarms?start=...&end=...    按时间范围查询
   // GET /api/db/stats                       统计汇总
   app.get('/api/db/alarms', (_req, res) => {
-    const { limit, start, end } = _req.query as Record<string, string | undefined>;
+    const { limit, start, end, includeSeed } = _req.query as Record<string, string | undefined>;
+    const showSeed = includeSeed === 'true' || includeSeed === '1';
     let records;
     if (start && end) {
-      records = queryAlarmsByRange(start, end);
+      records = queryAlarmsByRange(start, end, showSeed);
     } else {
-      records = queryRecentAlarms(limit ? parseInt(limit, 10) : 50);
+      records = queryRecentAlarms(limit ? parseInt(limit, 10) : 50, showSeed);
     }
     res.json({ total: records.length, records });
   });
