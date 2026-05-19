@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import cron from 'node-cron';
 import { Heartbeat } from './gateway/heartbeat.js';
 import { AlarmQueue } from './gateway/alarmQueue.js';
 import { SessionManager } from './gateway/sessionManager.js';
@@ -16,7 +15,6 @@ import { logger } from './utils/logger.js';
 import { getDb } from './db/database.js';
 import { insertAlarm, updateAlarmFinished, recoverStaleProcessingAlarms } from './db/alarmRepository.js';
 import { insertRealtimeSnapshot } from './db/realtimeSnapshotRepository.js';
-import { aggregateAcceptedSuggestions } from './db/selfImprovementRepository.js';
 import type { Alarm } from './types/index.js';
 
 /**
@@ -201,13 +199,6 @@ async function main() {
   // 3. 启动状态面板（alarmQueue 就绪后传入，支持手动注入）
   startStatusServer(statusPort, alarmQueue);
   logger.info('Agent', '状态面板已启动', { port: statusPort });
-
-  // 4. 每日凌晨2点聚合已接受的 AI 改进建议 → 重写 self-improvement.md（方案B）
-  aggregateAcceptedSuggestions(); // 启动时立即执行一次，确保文件内容最新
-  cron.schedule('0 2 * * *', () => {
-    logger.info('Agent', '开始每日自我改进聚合');
-    aggregateAcceptedSuggestions();
-  });
 
   // 5. EXP-2：P3 独立消费者（200ms 轮询，不 await，并发执行，不阻塞主队列）
   setInterval(() => {

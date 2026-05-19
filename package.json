@@ -6,7 +6,6 @@
     "start": "tsx src/index.ts",
     "build": "tsc",
     "dev": "tsx watch src/index.ts",
-    "cluster-reflections": "tsx scripts/cluster-reflections.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
