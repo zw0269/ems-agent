@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "id": "case-001",
+    "source": "self-improvement.md alarmId 8659",
+    "tags": ["VF离网", "振荡", "R3"],
+    "createdAt": "2026-05-19"
+  },
+  "input": {
+    "alarmId": "EVAL-001",
+    "alarmType": "VF离网",
+    "deviceId": "EVAL-PCS01",
+    "priority": "P1",
+    "faultCategory": "software",
+    "timestamp": "2026-05-19 09:00:00",
+    "realtime": {
+      "pcsOperatingStatus": 1,
+      "pcsVfOffGridStatus": true,
+      "pcsAcVoltageA": 240.1,
+      "pcsAcVoltageB": 239.8,
+      "pcsAcVoltageC": 239.5,
+      "pcsAcFrequency": 49.98,
+      "meterVoltageA": 240.0,
+      "meterAcFrequency": 49.97,
+      "pcsOverallFaultStatus": false
+    },
+    "history": [
+      { "id": 1, "name": "VF离网", "level": "1", "deviceType": "Pcs", "alarmTime": "2026-05-19 08:59:50", "recoverTime": "2026-05-19 08:59:52" },
+      { "id": 2, "name": "VF离网", "level": "1", "deviceType": "Pcs", "alarmTime": "2026-05-19 08:59:55", "recoverTime": "2026-05-19 08:59:57" },
+      { "id": 3, "name": "VF离网", "level": "1", "deviceType": "Pcs", "alarmTime": "2026-05-19 09:00:00", "recoverTime": "2026-05-19 09:00:02" }
+    ],
+    "violations": []
+  },
+  "expected": {
+    "rootCausePattern": "(振荡|抖动|死区|R3|保护回差)",
+    "minConfidence": 60,
+    "severity": ["medium", "high"],
+    "mustIncludeActions": ["远程核查"],
+    "mustNotInclude": ["手动重启", "放宽阈值"]
+  }
+}

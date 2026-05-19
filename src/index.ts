@@ -13,7 +13,8 @@ import { startStatusServer } from './server/statusServer.js';
 import { statusStore } from './server/statusStore.js';
 import { logger } from './utils/logger.js';
 import { getDb } from './db/database.js';
-import { insertAlarm, updateAlarmFinished, recoverStaleProcessingAlarms, queryHistoricalCasesByType } from './db/alarmRepository.js';
+import { insertAlarm, updateAlarmFinished, recoverStaleProcessingAlarms, queryHistoricalCasesByType, queryRecentByFingerprint, bumpDuplicateCount } from './db/alarmRepository.js';
+import { computeFingerprint, FINGERPRINT_BUCKET_MINUTES } from './runtime/alarmFingerprint.js';
 import { insertRealtimeSnapshot } from './db/realtimeSnapshotRepository.js';
 import type { Alarm } from './types/index.js';
 
@@ -105,7 +106,29 @@ async function processAlarm(alarm: Alarm) {
     deviceId: alarm.deviceId,
   });
   statusStore.startAlarm(alarm);
-  insertAlarm(alarm, alarm.alarmId.startsWith('TEST-'));
+
+  // F2 告警指纹去重：5 分钟窗口内同 alarmType + deviceId + 时间桶的告警
+  //   命中已 done 的同指纹记录 → 复用结论，跳过 LLM
+  const fingerprint = computeFingerprint(alarm);
+  const duplicate = queryRecentByFingerprint(fingerprint, FINGERPRINT_BUCKET_MINUTES);
+
+  insertAlarm(alarm, alarm.alarmId.startsWith('TEST-'), fingerprint);
+
+  if (duplicate && duplicate.conclusion) {
+    const dupN = bumpDuplicateCount(duplicate.alarm_id);
+    const reusedConclusion = `[延伸告警 #${dupN}，复用 ${FINGERPRINT_BUCKET_MINUTES} 分钟内同指纹分析 ${duplicate.alarm_id}]\n\n${duplicate.conclusion}`;
+    const durationMs = Date.now() - t0;
+    logger.info('Agent', 'F2 指纹命中，复用结论跳过 LLM', {
+      alarmId: alarm.alarmId,
+      reusedFromAlarmId: duplicate.alarm_id,
+      fingerprint,
+      duplicateSeq: dupN,
+    });
+    await notifyOperator(alarm, reusedConclusion);
+    statusStore.finishAlarm(alarm.alarmId, reusedConclusion, false);
+    updateAlarmFinished(alarm.alarmId, reusedConclusion, false, durationMs);
+    return;
+  }
 
   // EXP-1：P0 告警（低优先级提示类）跳过 LLM，直接记日志存库，节省 API 调用费用
   if (alarm.priority === 'P0') {

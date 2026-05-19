@@ -343,7 +343,7 @@ tr.clickable:hover td { background: rgba(99,102,241,.06); }
     </div>
     <table>
       <thead>
-        <tr><th>#</th><th>告警 ID</th><th>类型</th><th>设备</th><th>优先级</th><th>状态</th><th>耗时</th><th>时间</th><th>结论</th></tr>
+        <tr><th>#</th><th>告警 ID</th><th>类型</th><th>设备</th><th>优先级</th><th>状态</th><th>置信</th><th>耗时</th><th>时间</th><th>结论</th></tr>
       </thead>
       <tbody id="history-tbody"></tbody>
     </table>
@@ -450,6 +450,20 @@ function sTag(s) {
 function fmtNum(n) {
   if (n == null) return '0';
   return Number(n).toLocaleString();
+}
+// 从 conclusion markdown 中提取置信度（与 src/utils/conclusionParser.ts 同源逻辑）
+function parseConfidence(text) {
+  if (!text) return -1;
+  const m = String(text).match(/\\*?\\*?置信度\\*?\\*?\\s*[:：]\\s*\\[?(\\d{1,3})/);
+  if (!m) return -1;
+  const n = parseInt(m[1], 10);
+  return (n >= 0 && n <= 100) ? n : -1;
+}
+function confColor(c) {
+  if (c < 0) return '#888';
+  if (c >= 80) return '#3a7d44';
+  if (c >= 60) return '#c08000';
+  return '#b03030';
 }
 
 // ══════════════════════════════════════════════════
@@ -689,6 +703,10 @@ function renderHistoryPage() {
       const seedChip = r.is_test === 2
         ? ' <span style="display:inline-block;padding:1px 6px;border-radius:10px;background:#fff3cd;color:#8a6d3b;font-size:11px;margin-left:4px">种子</span>'
         : '';
+      const conf = parseConfidence(r.conclusion);
+      const confCell = conf < 0
+        ? '<span class="muted">-</span>'
+        : \`<span style="font-weight:600;color:\${confColor(conf)}">\${conf}%</span>\`;
       return \`
       <tr class="clickable" onclick="openModal('\${esc(r.alarm_id)}')">
         <td class="muted">\${start+i+1}</td>
@@ -697,6 +715,7 @@ function renderHistoryPage() {
         <td class="muted">\${esc(r.device_id)}</td>
         <td>\${pTag(r.priority)}</td>
         <td>\${sTag(r.status)}</td>
+        <td>\${confCell}</td>
         <td class="muted">\${fmtDur(r.duration_ms)}</td>
         <td class="muted">\${fmt(r.started_at)}</td>
         <td><div class="conclusion-cell">\${esc(r.conclusion||'-')}</div></td>
@@ -732,8 +751,13 @@ async function openModal(alarmId) {
     const alarm = d.alarm;
     if (!alarm) { document.getElementById('modal-body').innerHTML = '<div class="empty">记录不存在</div>'; return; }
 
-    document.getElementById('modal-sub').textContent =
-      alarm.alarm_type + ' · ' + alarm.priority + ' · ' + fmt(alarm.started_at);
+    const _conf = parseConfidence(alarm.conclusion);
+    const _confBadge = _conf < 0
+      ? ''
+      : '<span style="display:inline-block;padding:2px 8px;margin-left:8px;border-radius:12px;font-size:12px;font-weight:600;background:' + confColor(_conf) + '22;color:' + confColor(_conf) + '">置信度 ' + _conf + '%</span>';
+
+    document.getElementById('modal-sub').innerHTML =
+      esc(alarm.alarm_type) + ' · ' + esc(alarm.priority) + ' · ' + esc(fmt(alarm.started_at)) + _confBadge;
 
     // ── 结论 ──
     const conclusionHtml = alarm.conclusion

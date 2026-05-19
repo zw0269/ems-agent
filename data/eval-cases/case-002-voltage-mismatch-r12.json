@@ -1,0 +1,35 @@
+{
+  "_meta": {
+    "id": "case-002",
+    "source": "self-improvement.md alarmId 8352",
+    "tags": ["PCS电压不匹配", "R1.2", "母线不自洽"],
+    "createdAt": "2026-05-19"
+  },
+  "input": {
+    "alarmId": "EVAL-002",
+    "alarmType": "PCS电压不匹配",
+    "deviceId": "EVAL-PCS01",
+    "priority": "P1",
+    "faultCategory": "software",
+    "timestamp": "2026-05-19 09:30:00",
+    "realtime": {
+      "pcsOperatingStatus": 1,
+      "pcsUpVol": 525,
+      "pcsDownVol": 431.2,
+      "pcsTotalDirectVol": 842.2,
+      "batteryVoltage": 850,
+      "pcsOverallFaultStatus": true
+    },
+    "history": [],
+    "violations": [
+      { "field": "pcsTotalDirectVol", "value": 842.2, "threshold": null, "message": "[R1.2 母线电压不自洽] UpVol(525V) + DownVol(431.2V) = 956.2V，与 TotalDirectVol(842.2V) 偏差 13.5%", "timestamp": "2026-05-19 09:30:00" }
+    ]
+  },
+  "expected": {
+    "rootCausePattern": "(采样|系数|配置|R1\\.2|寄存器|映射)",
+    "minConfidence": 70,
+    "severity": ["medium", "high"],
+    "mustIncludeActions": ["远程核查"],
+    "mustNotInclude": ["物理过压", "硬件损坏"]
+  }
+}

@@ -131,6 +131,13 @@ export function getDb(): Database.Database {
   try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN tool_name           TEXT`); } catch { /* 列已存在，忽略 */ }
   try { _db.exec(`ALTER TABLE llm_calls ADD COLUMN is_error            INTEGER NOT NULL DEFAULT 0`); } catch { /* 列已存在，忽略 */ }
 
+  // 迁移：告警指纹（用于 5 分钟窗口内同设备同类型重复告警去重）
+  try { _db.exec(`ALTER TABLE alarm_records ADD COLUMN fingerprint TEXT`); } catch { /* 列已存在，忽略 */ }
+  try { _db.exec(`CREATE INDEX IF NOT EXISTS idx_alarm_records_fingerprint ON alarm_records(fingerprint, started_at DESC)`); } catch { /* 已存在 */ }
+
+  // 迁移：被复用结论的延伸告警计数（每命中一次 +1，便于运维看到"实际触发频次"）
+  try { _db.exec(`ALTER TABLE alarm_records ADD COLUMN duplicate_count INTEGER NOT NULL DEFAULT 0`); } catch { /* 列已存在，忽略 */ }
+
   logger.info('Database', '数据库已初始化', { path: DB_PATH });
   return _db;
 }

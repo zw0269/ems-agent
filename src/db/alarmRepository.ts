@@ -16,6 +16,8 @@ export interface AlarmRecord {
   status: 'processing' | 'done' | 'error';
   conclusion: string | null;
   is_test: number;  // 0 = 自动告警, 1 = 手动测试, 2 = 经验种子（不来自真实告警，用于 few-shot）
+  fingerprint: string | null;     // 5 分钟桶内 hash(alarmType+deviceId+timestamp_bucket)
+  duplicate_count: number;        // 被复用次数（每命中一次 +1）
 }
 
 function nowBeijing(): string {
@@ -43,15 +45,16 @@ function toBeijingTimestamp(raw: string): string {
 
 /**
  * 告警开始处理时写入记录（status = processing）
+ * fingerprint 用于 5 分钟窗口内同设备同类型告警去重
  */
-export function insertAlarm(alarm: Alarm, isTest = false): void {
+export function insertAlarm(alarm: Alarm, isTest = false, fingerprint: string | null = null): void {
   try {
     const db = getDb();
     db.prepare(`
       INSERT OR IGNORE INTO alarm_records
-        (alarm_id, alarm_type, fault_category, device_id, priority, alarm_timestamp, started_at, status, is_test)
+        (alarm_id, alarm_type, fault_category, device_id, priority, alarm_timestamp, started_at, status, is_test, fingerprint)
       VALUES
-        (@alarm_id, @alarm_type, @fault_category, @device_id, @priority, @alarm_timestamp, @started_at, 'processing', @is_test)
+        (@alarm_id, @alarm_type, @fault_category, @device_id, @priority, @alarm_timestamp, @started_at, 'processing', @is_test, @fingerprint)
     `).run({
       alarm_id:        alarm.alarmId,
       alarm_type:      alarm.alarmType,
@@ -61,9 +64,53 @@ export function insertAlarm(alarm: Alarm, isTest = false): void {
       alarm_timestamp: toBeijingTimestamp(alarm.timestamp),
       started_at:      nowBeijing(),
       is_test:         isTest ? 1 : 0,
+      fingerprint,
     });
   } catch (err: unknown) {
     logger.error('AlarmRepository', '写入告警记录失败', { alarmId: alarm.alarmId, error: (err as Error).message });
+  }
+}
+
+/**
+ * F2 去重：查询 5 分钟窗口内同 fingerprint 已完成（status=done）的最近告警
+ * 用于"延伸告警"复用结论，跳过昂贵的 LLM 调用
+ */
+export function queryRecentByFingerprint(
+  fingerprint: string,
+  withinMinutes = 5,
+): AlarmRecord | undefined {
+  try {
+    const cutoff = new Date(Date.now() + 8 * 3600000 - withinMinutes * 60 * 1000)
+      .toISOString().replace('Z', '+08:00');
+    return getDb()
+      .prepare(`
+        SELECT * FROM alarm_records
+        WHERE fingerprint = ?
+          AND status = 'done'
+          AND started_at >= ?
+          AND is_test != 2
+        ORDER BY started_at DESC
+        LIMIT 1
+      `)
+      .get(fingerprint, cutoff) as AlarmRecord | undefined;
+  } catch (err: unknown) {
+    logger.error('AlarmRepository', '按指纹查询失败', { fingerprint, error: (err as Error).message });
+    return undefined;
+  }
+}
+
+/**
+ * F2 去重：原告警被命中复用时，递增 duplicate_count
+ */
+export function bumpDuplicateCount(alarmId: string): number {
+  try {
+    const db = getDb();
+    db.prepare('UPDATE alarm_records SET duplicate_count = COALESCE(duplicate_count, 0) + 1 WHERE alarm_id = ?').run(alarmId);
+    const row = db.prepare('SELECT duplicate_count FROM alarm_records WHERE alarm_id = ?').get(alarmId) as { duplicate_count: number } | undefined;
+    return row?.duplicate_count ?? 0;
+  } catch (err: unknown) {
+    logger.error('AlarmRepository', '更新 duplicate_count 失败', { alarmId, error: (err as Error).message });
+    return 0;
   }
 }
 
