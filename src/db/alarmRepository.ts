@@ -1,4 +1,5 @@
 import { getDb } from './database.js';
+import { clampHours, beijingCutoffHours } from '../utils/time.js';
 import { logger } from '../utils/logger.js';
 import type { Alarm } from '../types/index.js';
 
@@ -202,27 +203,29 @@ export function queryAlarmById(alarmId: string): AlarmRecord | undefined {
  * 返回 [{hour: 'HH:00', count: N}, ...]，最近 hours 个小时
  * 注：排除 is_test=2 经验种子，避免污染趋势图
  */
-export function queryAlarmTrend(hours = 24): Array<{ hour: string; count: number }> {
+export function queryAlarmTrend(hours = 24, db: ReturnType<typeof getDb> = getDb()): Array<{ hour: string; count: number }> {
   try {
-    const rows = getDb().prepare(`
+    const h = clampHours(hours);
+    // 分桶键取北京时间（'+8 hours'），与下方 JS 补桶键完全一致，避免 UTC/北京错位。
+    const rows = db.prepare(`
       SELECT
-        strftime('%Y-%m-%dT%H:00', datetime(started_at, '-8 hours')) AS hour_utc,
+        strftime('%Y-%m-%dT%H:00', started_at, '+8 hours') AS hour_bj,
         COUNT(*) AS count
       FROM alarm_records
-      WHERE started_at >= datetime('now', '-${hours} hours')
+      WHERE started_at >= ?
         AND is_test != 2
-      GROUP BY hour_utc
-      ORDER BY hour_utc ASC
-    `).all() as Array<{ hour_utc: string; count: number }>;
+      GROUP BY hour_bj
+      ORDER BY hour_bj ASC
+    `).all(beijingCutoffHours(h)) as Array<{ hour_bj: string; count: number }>;
 
-    // 补全所有小时格（无数据的补 0）
-    const now = Date.now();
+    // 补全所有小时格（无数据的补 0）。以北京时间基准构键，与 SQL hour_bj 对齐。
+    const nowBj = Date.now() + 8 * 3600000;
     const result: Array<{ hour: string; count: number }> = [];
-    const countMap = new Map(rows.map(r => [r.hour_utc, r.count]));
-    for (let i = hours - 1; i >= 0; i--) {
-      const d = new Date(now - i * 3600000);
+    const countMap = new Map(rows.map(r => [r.hour_bj, r.count]));
+    for (let i = h - 1; i >= 0; i--) {
+      const d = new Date(nowBj - i * 3600000);
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}T${String(d.getUTCHours()).padStart(2,'0')}:00`;
-      const label = `${String((d.getUTCHours() + 8) % 24).padStart(2,'0')}:00`;
+      const label = `${String(d.getUTCHours()).padStart(2,'0')}:00`;
       result.push({ hour: label, count: countMap.get(key) ?? 0 });
     }
     return result;
@@ -285,6 +288,7 @@ export function reconcileAlarmStates(sinceHours = 24): {
   balanced: boolean;
 } {
   try {
+    const h = clampHours(sinceHours);
     const row = getDb().prepare(`
       SELECT
         COUNT(*)                                                     AS total,
@@ -292,13 +296,13 @@ export function reconcileAlarmStates(sinceHours = 24): {
         SUM(CASE WHEN status='error'      THEN 1 ELSE 0 END)         AS error,
         SUM(CASE WHEN status='processing' THEN 1 ELSE 0 END)         AS processing
       FROM alarm_records
-      WHERE started_at >= datetime('now', '-${sinceHours} hours')
+      WHERE started_at >= ?
         AND is_test != 2
-    `).get() as { total: number; done: number; error: number; processing: number };
+    `).get(beijingCutoffHours(h)) as { total: number; done: number; error: number; processing: number };
 
     return {
       ...row,
-      sinceHours,
+      sinceHours: h,
       balanced: row.total === (row.done + row.error + row.processing),
     };
   } catch {
@@ -318,14 +322,15 @@ export function queryAlarmLatencyPercentiles(sinceHours = 24): Array<{
   p99: number;
 }> {
   try {
+    const h = clampHours(sinceHours);
     const rows = getDb().prepare(`
       SELECT alarm_type AS alarmType, duration_ms
       FROM alarm_records
       WHERE duration_ms IS NOT NULL
-        AND started_at >= datetime('now', '-${sinceHours} hours')
+        AND started_at >= ?
         AND is_test != 2
       ORDER BY alarm_type, duration_ms ASC
-    `).all() as Array<{ alarmType: string; duration_ms: number }>;
+    `).all(beijingCutoffHours(h)) as Array<{ alarmType: string; duration_ms: number }>;
 
     const groups = new Map<string, number[]>();
     for (const r of rows) {

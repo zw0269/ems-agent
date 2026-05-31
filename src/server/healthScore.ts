@@ -1,5 +1,6 @@
 import { getDb } from '../db/database.js';
 import { parseConclusion } from '../utils/conclusionParser.js';
+import { clampHours, beijingCutoffHours } from '../utils/time.js';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -64,24 +65,26 @@ function recencyDecay(hoursAgo: number): number {
 /**
  * 计算当前健康度（基于近 24h 真实告警，排除 is_test=2 经验种子）
  */
-export function computeCurrentScore(): {
+export function computeCurrentScore(db: ReturnType<typeof getDb> = getDb()): {
   score: number;
   level: 'excellent' | 'good' | 'warning' | 'critical';
   contributing: Array<{ severity: Severity; count: number; impact: number }>;
 } {
   try {
-    const rows = getDb().prepare(`
+    // started_at 带 +08:00，julianday 已归一 UTC，直接相减即真实经过小时数（勿再 -8h）。
+    // 窗口用同格式 +08:00 cutoff 比较，命中索引且不产生时区偏移。
+    const rows = db.prepare(`
       SELECT
         conclusion,
         priority,
         started_at,
-        (julianday('now') - julianday(datetime(started_at, '-8 hours'))) * 24 AS hours_ago
+        (julianday('now') - julianday(started_at)) * 24 AS hours_ago
       FROM alarm_records
-      WHERE started_at >= datetime('now', '-24 hours')
+      WHERE started_at >= ?
         AND is_test != 2
         AND status != 'processing'
       ORDER BY started_at DESC
-    `).all() as AlarmRow[];
+    `).all(beijingCutoffHours(24)) as AlarmRow[];
 
     let totalImpact = 0;
     const breakdown: Record<Severity, { count: number; impact: number }> = {
@@ -123,19 +126,21 @@ export function computeCurrentScore(): {
  * 24 小时每小时健康度趋势（每个小时点：以该小时为窗口结束往前 24h 算分）
  * 简化版：仅返回每小时新增告警的累计 impact，便于画 sparkline
  */
-export function queryHourlyTrend(hours = 24): Array<{ hour: string; score: number; alarms: number }> {
+export function queryHourlyTrend(hours = 24, db: ReturnType<typeof getDb> = getDb()): Array<{ hour: string; score: number; alarms: number }> {
   try {
-    const rows = getDb().prepare(`
+    const h = clampHours(hours);
+    // hour_label 取北京小时（'+8 hours'），与下方 JS 补桶键一致；hours_ago 勿再 -8h。
+    const rows = db.prepare(`
       SELECT
-        strftime('%H', datetime(started_at)) AS hour_label,
+        strftime('%H', started_at, '+8 hours') AS hour_label,
         conclusion,
         priority,
-        (julianday('now') - julianday(datetime(started_at, '-8 hours'))) * 24 AS hours_ago
+        (julianday('now') - julianday(started_at)) * 24 AS hours_ago
       FROM alarm_records
-      WHERE started_at >= datetime('now', '-${hours} hours')
+      WHERE started_at >= ?
         AND is_test != 2
         AND status != 'processing'
-    `).all() as Array<{ hour_label: string; conclusion: string | null; priority: string; hours_ago: number }>;
+    `).all(beijingCutoffHours(h)) as Array<{ hour_label: string; conclusion: string | null; priority: string; hours_ago: number }>;
 
     // 按小时桶分组累计 impact
     const bucket = new Map<string, { impact: number; count: number }>();
@@ -152,7 +157,7 @@ export function queryHourlyTrend(hours = 24): Array<{ hour: string; score: numbe
     // 补全 24 个小时格（用北京时间小时）
     const result: Array<{ hour: string; score: number; alarms: number }> = [];
     const now = new Date();
-    for (let i = hours - 1; i >= 0; i--) {
+    for (let i = h - 1; i >= 0; i--) {
       const d = new Date(now.getTime() - i * 3600000 + 8 * 3600000);
       const hh = String(d.getUTCHours()).padStart(2, '0');
       const slot = bucket.get(hh) ?? { impact: 0, count: 0 };
