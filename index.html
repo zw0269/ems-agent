@@ -9,27 +9,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
   /* ============================================================
-     Design Tokens — Notion 设计语言（第一性原理：取质感原子，弃营销尺度）
+     Design Tokens — Notion 设计语言（"Fuller Notion feel"：更大字号 /
+     更多留白 / 暖白分区交替 / 更柔更大的卡片）
      全部颜色/间距/字号/圆角/阴影集中于此，组件区禁现场 hex
      ============================================================ */
   :root{
     /* —— 画布与表面（暖白纸感） —— */
-    --canvas:#ffffff;            /* 卡片 / 导航 / 页眉表面 */
-    --surface:#f6f5f4;           /* Notion 暖白：页面底色 / code 底 */
-    --surface-soft:#fafaf9;      /* 更浅暖白：备用悬浮底 */
+    --canvas:#ffffff;
+    --surface:#f6f5f4;           /* Notion 暖白：分区交替底色 / code 底 */
+    --surface-soft:#fafaf9;
 
     /* —— 文字阶（近黑 + Notion 暖灰） —— */
-    --ink:rgba(0,0,0,.95);       /* 近黑：标题 / 正文，微暖不刺眼 */
-    --ink-secondary:#615d59;     /* Notion 暖灰 500：次要文字 / 描述 */
-    --ink-muted:#a39e98;         /* Notion 暖灰 300：弱化 / 文件路径 */
+    --ink:rgba(0,0,0,.95);
+    --ink-secondary:#615d59;
+    --ink-muted:#a39e98;
     --on-accent:#ffffff;
     --on-dark:#ffffff;
 
-    /* —— 边框 whisper（1px 低存在感） —— */
+    /* —— 边框 whisper —— */
     --border:rgba(0,0,0,.1);
     --border-strong:rgba(0,0,0,.18);
 
-    /* —— 强调（唯一饱和色：Notion Blue，克制使用） —— */
+    /* —— 强调（唯一饱和色：Notion Blue） —— */
     --accent:#0075de;
     --accent-pressed:#005bab;
     --accent-ring:rgba(0,117,222,.28);
@@ -43,11 +44,11 @@
     --c-ref-bg:#f8f5e8;      --c-ref-fg:#37352f;
     --c-misc-bg:#f0eeec;     --c-misc-fg:#5d5b54;
 
-    /* —— 类目实心点（图标饱和色） —— */
+    /* —— 类目实心点 —— */
     --ico-agent:#7b3ff2;  --ico-data:#dd5b00;    --ico-memory:#1aae39;
     --ico-tool:#0075de;   --ico-research:#ff64c8;--ico-ref:#37352f;  --ico-misc:#a39e98;
 
-    /* —— 状态徽章（与类目共享暖 tint） —— */
+    /* —— 状态徽章 —— */
     --s-active-bg:#d9f3e1;   --s-active-fg:#1aae39;
     --s-recent-bg:#dcecfa;   --s-recent-fg:#0075de;
     --s-paused-bg:#ffe8d4;   --s-paused-fg:#793400;
@@ -55,20 +56,23 @@
     --s-vendor-bg:#f8f5e8;   --s-vendor-fg:#37352f;
     --s-scaffold-bg:#fef7d6; --s-scaffold-fg:#793400;
 
-    /* —— Space（8px base，有机标度） —— */
+    /* —— Space（8px base，含更大留白档） —— */
     --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
     --sp-5:20px; --sp-6:24px; --sp-8:32px; --sp-10:40px;
+    --sp-12:48px; --sp-14:56px; --sp-16:64px; --sp-20:80px;
 
     /* —— Type —— */
     --font-sans:'Inter','Notion Sans',-apple-system,system-ui,'Segoe UI',Helvetica,sans-serif;
     --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
 
     /* —— Radius —— */
-    --r-xs:4px; --r-sm:6px; --r-md:10px; --r-lg:12px; --r-pill:9999px;
+    --r-xs:4px; --r-sm:6px; --r-md:10px; --r-lg:12px; --r-xl:16px; --r-pill:9999px;
 
-    /* —— Elevation：Notion 4 层柔影（仅 hover / :target 用，密排默认 flat） —— */
+    /* —— Elevation：Notion 多层柔影 —— */
     --shadow-card:rgba(0,0,0,.04) 0 4px 18px, rgba(0,0,0,.027) 0 2.025px 7.85px,
                   rgba(0,0,0,.02) 0 .8px 2.93px, rgba(0,0,0,.01) 0 .175px 1.04px;
+    --shadow-deep:rgba(0,0,0,.01) 0 1px 3px, rgba(0,0,0,.02) 0 3px 7px,
+                  rgba(0,0,0,.02) 0 7px 15px, rgba(0,0,0,.04) 0 14px 28px, rgba(0,0,0,.05) 0 23px 52px;
     --ring-focus:0 0 0 2px var(--canvas), 0 0 0 4px var(--accent);
   }
 
@@ -101,49 +105,55 @@
   .nav-meta{font-size:13px;color:var(--ink-secondary)}
   .nav-meta b{color:var(--ink);font-weight:600}
 
-  /* —— page header（标题块，无 lede 介绍段） —— */
-  .page-head{background:var(--canvas);border-bottom:1px solid var(--border);padding:var(--sp-8) 0 var(--sp-6)}
-  .page-head h1{font-size:24px;font-weight:700;letter-spacing:-.5px;line-height:1.1;margin:0 0 6px;color:var(--ink)}
-  .page-head .path{font-size:13px;color:var(--ink-secondary);margin:0}
+  /* —— page header / hero（大标题 + lede，取 Notion compression-at-scale） —— */
+  .page-head{background:var(--canvas);border-bottom:1px solid var(--border);padding:var(--sp-16) 0 var(--sp-12)}
+  .page-head h1{font-size:44px;font-weight:700;letter-spacing:-1.5px;line-height:1.05;margin:0 0 var(--sp-3);color:var(--ink)}
+  .page-head .lede{font-size:18px;font-weight:500;line-height:1.45;color:var(--ink-secondary);margin:0 0 var(--sp-5);max-width:680px}
+  .page-head .path{font-size:13px;color:var(--ink-muted);margin:0}
   .page-head .path code{font-family:var(--font-mono);background:var(--surface);
-    padding:2px 8px;border-radius:var(--r-sm);color:var(--ink)}
+    padding:3px 9px;border-radius:var(--r-sm);color:var(--ink)}
   .page-head .path b{color:var(--ink);font-weight:600}
 
-  /* —— main —— */
-  main{padding:var(--sp-8) 0 var(--sp-10)}
-  .section-title{font-size:13px;font-weight:600;color:var(--ink-secondary);text-transform:uppercase;
-    letter-spacing:1.4px;margin:0 0 var(--sp-4)}
-  .section-title .count-inline{color:var(--ink-muted);font-weight:500;text-transform:none;letter-spacing:0;margin-left:var(--sp-2)}
-  section + section{margin-top:var(--sp-10)}
+  /* —— bands（暖白 / 白 整段全宽交替） —— */
+  main{padding:0}
+  .band{padding:var(--sp-14) 0}
+  .band--warm{background:var(--surface)}
+  .band--canvas{background:var(--canvas);border-top:1px solid var(--border)}
+
+  /* —— section heading（放大，非 uppercase 小标签） —— */
+  .section-title{font-size:26px;font-weight:700;letter-spacing:-.5px;line-height:1.2;
+    color:var(--ink);margin:0 0 var(--sp-6);display:block}
+  .section-title .count-inline{display:block;font-size:14px;font-weight:500;color:var(--ink-secondary);
+    letter-spacing:0;line-height:1.5;margin:var(--sp-2) 0 0}
 
   /* —— filter bar —— */
-  .toolbar{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-4);align-items:center}
-  .pill{font-size:12px;font-weight:500;padding:6px var(--sp-3);border-radius:var(--r-pill);
+  .toolbar{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-6);align-items:center}
+  .pill{font-size:12.5px;font-weight:500;padding:7px var(--sp-4);border-radius:var(--r-pill);
     border:1px solid var(--border);background:var(--canvas);color:var(--ink-secondary);cursor:pointer;user-select:none;
-    transition:background .12s ease,color .12s ease,border-color .12s ease}
-  .pill:hover{border-color:var(--border-strong);color:var(--ink)}
+    transition:background .12s ease,color .12s ease,border-color .12s ease,box-shadow .12s ease}
+  .pill:hover{border-color:var(--border-strong);color:var(--ink);box-shadow:var(--shadow-card)}
   .pill.active{background:var(--ink);color:var(--on-dark);border-color:var(--ink)}
   .pill:focus-visible{outline:none;box-shadow:var(--ring-focus)}
-  .toolbar .count{margin-left:auto;font-size:12px;color:var(--ink-secondary)}
+  .toolbar .count{margin-left:auto;font-size:13px;color:var(--ink-secondary)}
 
-  /* —— overview grid (mini cards) —— */
-  .overview-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--sp-3)}
-  .mini-card{display:flex;flex-direction:column;gap:var(--sp-2);min-height:96px;
-    background:var(--canvas);border:1px solid var(--border);border-radius:var(--r-md);
-    padding:13px 15px;text-decoration:none;color:inherit;
-    transition:border-color .12s ease,box-shadow .12s ease,transform .12s ease}
-  .mini-card:hover{border-color:var(--border-strong);box-shadow:var(--shadow-card);text-decoration:none}
-  .mini-card:active{transform:translateY(1px)}
+  /* —— overview grid (mini cards：更大更柔，默认柔影 + hover 抬升) —— */
+  .overview-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:var(--sp-4)}
+  .mini-card{display:flex;flex-direction:column;gap:var(--sp-2);min-height:108px;
+    background:var(--canvas);border:1px solid var(--border);border-radius:var(--r-lg);
+    padding:16px 18px;text-decoration:none;color:inherit;box-shadow:var(--shadow-card);
+    transition:border-color .14s ease,box-shadow .14s ease,transform .14s ease}
+  .mini-card:hover{border-color:var(--border-strong);box-shadow:var(--shadow-deep);transform:translateY(-2px);text-decoration:none}
+  .mini-card:active{transform:translateY(0)}
   .mini-card:focus-visible{outline:none;box-shadow:var(--ring-focus)}
   .mc-head{display:flex;align-items:center;gap:var(--sp-2)}
   .mc-dot{display:inline-block;width:8px;height:8px;border-radius:2px;flex-shrink:0}
-  .mc-name{font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--ink);line-height:1.35;
+  .mc-name{font-family:var(--font-mono);font-size:13.5px;font-weight:600;color:var(--ink);line-height:1.35;
     word-break:break-word;flex:1 1 auto;min-width:0}
   .mc-chip{flex:0 0 auto;font-size:10px;padding:2px 7px;letter-spacing:.2px}
-  .mc-desc{font-size:12.5px;line-height:1.5;color:var(--ink-secondary);
+  .mc-desc{font-size:13px;line-height:1.55;color:var(--ink-secondary);
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 
-  /* —— chips（类目，tint/文字对） —— */
+  /* —— chips —— */
   .chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:var(--r-sm);letter-spacing:.2px}
   .c-agent   {background:var(--c-agent-bg);   color:var(--c-agent-fg)}
   .c-data    {background:var(--c-data-bg);    color:var(--c-data-fg)}
@@ -173,32 +183,40 @@
   .s-vendor        {background:var(--s-vendor-bg);  color:var(--s-vendor-fg)}
   .s-scaffold      {background:var(--s-scaffold-bg);color:var(--s-scaffold-fg)}
 
-  /* —— detail cards —— */
-  .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-4)}
-  .card{background:var(--canvas);border:1px solid var(--border);border-radius:var(--r-lg);padding:18px 20px;
-    scroll-margin-top:80px;transition:border-color .12s ease,box-shadow .12s ease}
-  .card:target{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring),var(--shadow-card)}
-  .card-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
-  .card-title{font-family:var(--font-mono);font-size:14.5px;font-weight:600;color:var(--ink);margin:0;flex:0 0 auto}
+  /* —— detail cards（16px 圆角 + 默认柔影 + 更大留白） —— */
+  .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-5)}
+  .card{background:var(--canvas);border:1px solid var(--border);border-radius:var(--r-xl);padding:24px 26px;
+    scroll-margin-top:80px;box-shadow:var(--shadow-card);
+    transition:border-color .14s ease,box-shadow .14s ease,transform .14s ease}
+  .card:hover{box-shadow:var(--shadow-deep);transform:translateY(-2px)}
+  .card:target{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring),var(--shadow-deep)}
+  .card-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .card-title{font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--ink);margin:0;flex:0 0 auto}
   .card-meta{font-size:12px;color:var(--ink-secondary);margin-left:auto}
-  .card-body{font-size:13.5px;color:var(--ink-secondary);line-height:1.6}
-  .card-body p{margin:6px 0}
+  .card-body{font-size:14px;color:var(--ink-secondary);line-height:1.65}
+  .card-body p{margin:7px 0}
   .card-body .label{display:inline-block;font-weight:600;color:var(--ink);min-width:62px}
   .card-body b{color:var(--ink);font-weight:600}
   .card-body code{background:var(--surface);padding:1px 6px;border-radius:var(--r-xs);font-size:12px;color:var(--ink)}
   .card-files{font-family:var(--font-mono);font-size:11.5px;color:var(--ink-muted)}
 
   /* —— legend —— */
-  .legend{display:flex;flex-wrap:wrap;gap:var(--sp-4);font-size:12px;color:var(--ink-secondary);margin-bottom:var(--sp-4)}
+  .legend{display:flex;flex-wrap:wrap;gap:var(--sp-4);font-size:12px;color:var(--ink-secondary);margin-bottom:var(--sp-6)}
   .legend .item{display:inline-flex;align-items:center;gap:6px}
 
   /* —— footer —— */
-  footer{padding:var(--sp-6) 0 var(--sp-8);font-size:12px;color:var(--ink-secondary);text-align:center}
+  footer{padding:var(--sp-10) 0 var(--sp-12);font-size:12px;color:var(--ink-secondary);text-align:center;
+    background:var(--surface);border-top:1px solid var(--border)}
   footer b{color:var(--ink);font-weight:600}
 
   @media (max-width:900px){.cards{grid-template-columns:1fr}}
-  @media (max-width:820px){.container{padding:0 var(--sp-4)}}
-  @media (max-width:560px){.page-head h1{font-size:20px}}
+  @media (max-width:820px){.container{padding:0 var(--sp-4)} .band{padding:var(--sp-10) 0}}
+  @media (max-width:560px){
+    .page-head{padding:var(--sp-10) 0 var(--sp-8)}
+    .page-head h1{font-size:30px;letter-spacing:-1px}
+    .page-head .lede{font-size:16px}
+    .section-title{font-size:22px}
+  }
 </style>
 </head>
 <body>
@@ -213,443 +231,448 @@
 <header class="page-head">
   <div class="container">
     <h1>project_test · 目录索引</h1>
+    <p class="lede">18 个独立子项目的工程师视图——每个是什么、属哪一类、推进到哪一步，一屏扫完。</p>
     <p class="path"><code>/Users/zw/work/project_test</code> · 多项目工作目录，共 <b>18</b> 个子目录</p>
   </div>
 </header>
 
-<main class="container">
+<main>
 
   <!-- ============== 概览卡片网格 ============== -->
-  <section id="overview">
-    <h2 class="section-title">项目概览 · 按类目筛选<span class="count-inline">点击标签过滤</span></h2>
-    <div class="toolbar">
-      <span class="pill active" data-filter="all">全部</span>
-      <span class="pill" data-filter="agent">Agent</span>
-      <span class="pill" data-filter="data">数据</span>
-      <span class="pill" data-filter="memory">Memory</span>
-      <span class="pill" data-filter="tool">工具</span>
-      <span class="pill" data-filter="research">研究</span>
-      <span class="pill" data-filter="ref">参考</span>
-      <span class="pill" data-filter="misc">其它</span>
-      <span class="count" id="count">18 / 18</span>
-    </div>
+  <section id="overview" class="band band--warm">
+    <div class="container">
+      <h2 class="section-title">项目概览<span class="count-inline">按类目筛选 · 点击标签过滤</span></h2>
+      <div class="toolbar">
+        <span class="pill active" data-filter="all">全部</span>
+        <span class="pill" data-filter="agent">Agent</span>
+        <span class="pill" data-filter="data">数据</span>
+        <span class="pill" data-filter="memory">Memory</span>
+        <span class="pill" data-filter="tool">工具</span>
+        <span class="pill" data-filter="research">研究</span>
+        <span class="pill" data-filter="ref">参考</span>
+        <span class="pill" data-filter="misc">其它</span>
+        <span class="count" id="count">18 / 18</span>
+      </div>
 
-    <div class="overview-grid" id="overview-grid">
+      <div class="overview-grid" id="overview-grid">
 
-      <a href="#card-agent-reach-venv" class="mini-card" data-cat="misc">
-        <div class="mc-head">
-          <span class="mc-dot ico-misc"></span>
-          <span class="mc-name">agent-reach-venv/</span>
-          <span class="chip c-misc mc-chip">其它</span>
-        </div>
-        <div class="mc-desc">Python 虚拟环境（bin / lib / include / share / pyvenv.cfg），非业务目录。</div>
-      </a>
+        <a href="#card-agent-reach-venv" class="mini-card" data-cat="misc">
+          <div class="mc-head">
+            <span class="mc-dot ico-misc"></span>
+            <span class="mc-name">agent-reach-venv/</span>
+            <span class="chip c-misc mc-chip">其它</span>
+          </div>
+          <div class="mc-desc">Python 虚拟环境（bin / lib / include / share / pyvenv.cfg），非业务目录。</div>
+        </a>
 
-      <a href="#card-AIDigest" class="mini-card" data-cat="data">
-        <div class="mc-head">
-          <span class="mc-dot ico-data"></span>
-          <span class="mc-name">AIDigest/</span>
-          <span class="chip c-data mc-chip">数据</span>
-        </div>
-        <div class="mc-desc">每日抓取 AI 公司 / 人物 blog + arXiv 论文，零云依赖，输出本地 Markdown 日报与 Notion 风格双语 HTML。</div>
-      </a>
+        <a href="#card-AIDigest" class="mini-card" data-cat="data">
+          <div class="mc-head">
+            <span class="mc-dot ico-data"></span>
+            <span class="mc-name">AIDigest/</span>
+            <span class="chip c-data mc-chip">数据</span>
+          </div>
+          <div class="mc-desc">每日抓取 AI 公司 / 人物 blog + arXiv 论文，零云依赖，输出本地 Markdown 日报与 Notion 风格双语 HTML。</div>
+        </a>
 
-      <a href="#card-ble-modbus-bridge" class="mini-card" data-cat="data">
-        <div class="mc-head">
-          <span class="mc-dot ico-data"></span>
-          <span class="mc-name">ble-modbus-bridge/</span>
-          <span class="chip c-data mc-chip">数据</span>
-        </div>
-        <div class="mc-desc">125kW 混逆 PCS 直连验证：BLE↔RS485 抓 Modbus 帧，浏览器面板显示 PCS / BMS / 电表 / 柴发 / MPPT 全部点位。</div>
-      </a>
+        <a href="#card-ble-modbus-bridge" class="mini-card" data-cat="data">
+          <div class="mc-head">
+            <span class="mc-dot ico-data"></span>
+            <span class="mc-name">ble-modbus-bridge/</span>
+            <span class="chip c-data mc-chip">数据</span>
+          </div>
+          <div class="mc-desc">125kW 混逆 PCS 直连验证：BLE↔RS485 抓 Modbus 帧，浏览器面板显示 PCS / BMS / 电表 / 柴发 / MPPT 全部点位。</div>
+        </a>
 
-      <a href="#card-career-ops" class="mini-card" data-cat="agent">
-        <div class="mc-head">
-          <span class="mc-dot ico-agent"></span>
-          <span class="mc-name">career-ops/</span>
-          <span class="chip c-agent mc-chip">Agent</span>
-        </div>
-        <div class="mc-desc">多 Agent 求职系统，把"AI 筛简历"反过来用：让候选人用 AI 筛公司。多 runtime。</div>
-      </a>
+        <a href="#card-career-ops" class="mini-card" data-cat="agent">
+          <div class="mc-head">
+            <span class="mc-dot ico-agent"></span>
+            <span class="mc-name">career-ops/</span>
+            <span class="chip c-agent mc-chip">Agent</span>
+          </div>
+          <div class="mc-desc">多 Agent 求职系统，把"AI 筛简历"反过来用：让候选人用 AI 筛公司。多 runtime。</div>
+        </a>
 
-      <a href="#card-claude-code" class="mini-card" data-cat="ref">
-        <div class="mc-head">
-          <span class="mc-dot ico-ref"></span>
-          <span class="mc-name">claude-code/</span>
-          <span class="chip c-ref mc-chip">参考</span>
-        </div>
-        <div class="mc-desc">Anthropic Claude Code CLI 的源码归档（~38 MB），参考 Tool / Command / Service 三层架构。</div>
-      </a>
+        <a href="#card-claude-code" class="mini-card" data-cat="ref">
+          <div class="mc-head">
+            <span class="mc-dot ico-ref"></span>
+            <span class="mc-name">claude-code/</span>
+            <span class="chip c-ref mc-chip">参考</span>
+          </div>
+          <div class="mc-desc">Anthropic Claude Code CLI 的源码归档（~38 MB），参考 Tool / Command / Service 三层架构。</div>
+        </a>
 
-      <a href="#card-contrast" class="mini-card" data-cat="misc">
-        <div class="mc-head">
-          <span class="mc-dot ico-misc"></span>
-          <span class="mc-name">contrast/</span>
-          <span class="chip c-misc mc-chip">其它</span>
-        </div>
-        <div class="mc-desc">模型 / 提示词盲测对比与采购结论存档：eval/ 跑评测，结论/ 沉淀 Part-A/B 报告与 PPT 大纲。</div>
-      </a>
+        <a href="#card-contrast" class="mini-card" data-cat="misc">
+          <div class="mc-head">
+            <span class="mc-dot ico-misc"></span>
+            <span class="mc-name">contrast/</span>
+            <span class="chip c-misc mc-chip">其它</span>
+          </div>
+          <div class="mc-desc">模型 / 提示词盲测对比与采购结论存档：eval/ 跑评测，结论/ 沉淀 Part-A/B 报告与 PPT 大纲。</div>
+        </a>
 
-      <a href="#card-DeepScientist" class="mini-card" data-cat="agent">
-        <div class="mc-head">
-          <span class="mc-dot ico-agent"></span>
-          <span class="mc-name">DeepScientist/</span>
-          <span class="chip c-agent mc-chip">Agent</span>
-        </div>
-        <div class="mc-desc">本地 15 分钟跑起来的 AI 科研 Agent，每个 quest 一个独立 repo，研究进度可视，可随时人工接管。</div>
-      </a>
+        <a href="#card-DeepScientist" class="mini-card" data-cat="agent">
+          <div class="mc-head">
+            <span class="mc-dot ico-agent"></span>
+            <span class="mc-name">DeepScientist/</span>
+            <span class="chip c-agent mc-chip">Agent</span>
+          </div>
+          <div class="mc-desc">本地 15 分钟跑起来的 AI 科研 Agent，每个 quest 一个独立 repo，研究进度可视，可随时人工接管。</div>
+        </a>
 
-      <a href="#card-douyin" class="mini-card" data-cat="data">
-        <div class="mc-head">
-          <span class="mc-dot ico-data"></span>
-          <span class="mc-name">douyin/</span>
-          <span class="chip c-data mc-chip">数据</span>
-        </div>
-        <div class="mc-desc">抖音内容工具链：detail/raw dump → 抽文章 → 批量下载 → 全量转录，INDEX.md 跟踪状态（38/38）。</div>
-      </a>
+        <a href="#card-douyin" class="mini-card" data-cat="data">
+          <div class="mc-head">
+            <span class="mc-dot ico-data"></span>
+            <span class="mc-name">douyin/</span>
+            <span class="chip c-data mc-chip">数据</span>
+          </div>
+          <div class="mc-desc">抖音内容工具链：detail/raw dump → 抽文章 → 批量下载 → 全量转录，INDEX.md 跟踪状态（38/38）。</div>
+        </a>
 
-      <a href="#card-fund-details" class="mini-card" data-cat="data">
-        <div class="mc-head">
-          <span class="mc-dot ico-data"></span>
-          <span class="mc-name">fund-details/</span>
-          <span class="chip c-data mc-chip">数据</span>
-        </div>
-        <div class="mc-desc">资金流向 + 基金持仓查询可视化：季度 / 每日持仓抓取、估算、Top-500 排名、ETF 双路径估值。</div>
-      </a>
+        <a href="#card-fund-details" class="mini-card" data-cat="data">
+          <div class="mc-head">
+            <span class="mc-dot ico-data"></span>
+            <span class="mc-name">fund-details/</span>
+            <span class="chip c-data mc-chip">数据</span>
+          </div>
+          <div class="mc-desc">资金流向 + 基金持仓查询可视化：季度 / 每日持仓抓取、估算、Top-500 排名、ETF 双路径估值。</div>
+        </a>
 
-      <a href="#card-gbrain" class="mini-card" data-cat="memory">
-        <div class="mc-head">
-          <span class="mc-dot ico-memory"></span>
-          <span class="mc-name">gbrain/</span>
-          <span class="chip c-memory mc-chip">Memory</span>
-        </div>
-        <div class="mc-desc">给 AI Agent 装"大脑"：写入自动抽实体 + typed link（零 LLM 调用），混合搜索 + 反向链接排序。</div>
-      </a>
+        <a href="#card-gbrain" class="mini-card" data-cat="memory">
+          <div class="mc-head">
+            <span class="mc-dot ico-memory"></span>
+            <span class="mc-name">gbrain/</span>
+            <span class="chip c-memory mc-chip">Memory</span>
+          </div>
+          <div class="mc-desc">给 AI Agent 装"大脑"：写入自动抽实体 + typed link（零 LLM 调用），混合搜索 + 反向链接排序。</div>
+        </a>
 
-      <a href="#card-gold" class="mini-card" data-cat="agent">
-        <div class="mc-head">
-          <span class="mc-dot ico-agent"></span>
-          <span class="mc-name">gold-market-comprehensive-intelligence-system/</span>
-          <span class="chip c-agent mc-chip">Agent</span>
-        </div>
-        <div class="mc-desc">Gold Sentinel v2.0：5 个 Sub-Agent 并行分析黄金市场（宏观 / 技术 / 情绪 / 地缘 / 结构），WebSocket 实时面板。</div>
-      </a>
+        <a href="#card-gold" class="mini-card" data-cat="agent">
+          <div class="mc-head">
+            <span class="mc-dot ico-agent"></span>
+            <span class="mc-name">gold-market-comprehensive-intelligence-system/</span>
+            <span class="chip c-agent mc-chip">Agent</span>
+          </div>
+          <div class="mc-desc">Gold Sentinel v2.0：5 个 Sub-Agent 并行分析黄金市场（宏观 / 技术 / 情绪 / 地缘 / 结构），WebSocket 实时面板。</div>
+        </a>
 
-      <a href="#card-pm-frame" class="mini-card" data-cat="tool">
-        <div class="mc-head">
-          <span class="mc-dot ico-tool"></span>
-          <span class="mc-name">pm-frame/</span>
-          <span class="chip c-tool mc-chip">工具</span>
-        </div>
-        <div class="mc-desc">Vue CLI 标准前端骨架（npm run serve / build / lint），PM-Frame 项目的初始模板。</div>
-      </a>
+        <a href="#card-pm-frame" class="mini-card" data-cat="tool">
+          <div class="mc-head">
+            <span class="mc-dot ico-tool"></span>
+            <span class="mc-name">pm-frame/</span>
+            <span class="chip c-tool mc-chip">工具</span>
+          </div>
+          <div class="mc-desc">Vue CLI 标准前端骨架（npm run serve / build / lint），PM-Frame 项目的初始模板。</div>
+        </a>
 
-      <a href="#card-PortHub" class="mini-card" data-cat="tool">
-        <div class="mc-head">
-          <span class="mc-dot ico-tool"></span>
-          <span class="mc-name">PortHub/</span>
-          <span class="chip c-tool mc-chip">工具</span>
-        </div>
-        <div class="mc-desc">主机 106.53.31.32 的端口 / 服务导航卡片页，curl 探活后挂卡，零后端、零依赖。</div>
-      </a>
+        <a href="#card-PortHub" class="mini-card" data-cat="tool">
+          <div class="mc-head">
+            <span class="mc-dot ico-tool"></span>
+            <span class="mc-name">PortHub/</span>
+            <span class="chip c-tool mc-chip">工具</span>
+          </div>
+          <div class="mc-desc">主机 106.53.31.32 的端口 / 服务导航卡片页，curl 探活后挂卡，零后端、零依赖。</div>
+        </a>
 
-      <a href="#card-prompts" class="mini-card" data-cat="misc">
-        <div class="mc-head">
-          <span class="mc-dot ico-misc"></span>
-          <span class="mc-name">prompts/</span>
-          <span class="chip c-misc mc-chip">其它</span>
-        </div>
-        <div class="mc-desc">"提示词记录"档案页，单文件浏览器直开，新建项目，用作本地提示词速查。</div>
-      </a>
+        <a href="#card-prompts" class="mini-card" data-cat="misc">
+          <div class="mc-head">
+            <span class="mc-dot ico-misc"></span>
+            <span class="mc-name">prompts/</span>
+            <span class="chip c-misc mc-chip">其它</span>
+          </div>
+          <div class="mc-desc">"提示词记录"档案页，单文件浏览器直开，新建项目，用作本地提示词速查。</div>
+        </a>
 
-      <a href="#card-skill" class="mini-card" data-cat="research">
-        <div class="mc-head">
-          <span class="mc-dot ico-research"></span>
-          <span class="mc-name">Skill研究/</span>
-          <span class="chip c-research mc-chip">研究</span>
-        </div>
-        <div class="mc-desc">第三方 / 自研 Skill &amp; Agent 项目合集（15 项）：agency-agents · claude-code-guide · custom-skills · gstack 等。</div>
-      </a>
+        <a href="#card-skill" class="mini-card" data-cat="research">
+          <div class="mc-head">
+            <span class="mc-dot ico-research"></span>
+            <span class="mc-name">Skill研究/</span>
+            <span class="chip c-research mc-chip">研究</span>
+          </div>
+          <div class="mc-desc">第三方 / 自研 Skill &amp; Agent 项目合集（15 项）：agency-agents · claude-code-guide · custom-skills · gstack 等。</div>
+        </a>
 
-      <a href="#card-superpowers" class="mini-card" data-cat="agent">
-        <div class="mc-head">
-          <span class="mc-dot ico-agent"></span>
-          <span class="mc-name">superpowers/</span>
-          <span class="chip c-agent mc-chip">Agent</span>
-        </div>
-        <div class="mc-desc">面向 Coding Agent 的完整方法论：Spec → Plan → 子代理执行，强调 TDD / YAGNI / DRY，Skills 自动触发。</div>
-      </a>
+        <a href="#card-superpowers" class="mini-card" data-cat="agent">
+          <div class="mc-head">
+            <span class="mc-dot ico-agent"></span>
+            <span class="mc-name">superpowers/</span>
+            <span class="chip c-agent mc-chip">Agent</span>
+          </div>
+          <div class="mc-desc">面向 Coding Agent 的完整方法论：Spec → Plan → 子代理执行，强调 TDD / YAGNI / DRY，Skills 自动触发。</div>
+        </a>
 
-      <a href="#card-tokenswarm" class="mini-card" data-cat="agent">
-        <div class="mc-head">
-          <span class="mc-dot ico-agent"></span>
-          <span class="mc-name">tokenswarm-multi-agent-framework/</span>
-          <span class="chip c-agent mc-chip">Agent</span>
-        </div>
-        <div class="mc-desc">轻量 Multi-Agent Swarm 编排框架，三团队架构（sensing / execution / ops）+ Supervisor，per-run 可观测。</div>
-      </a>
+        <a href="#card-tokenswarm" class="mini-card" data-cat="agent">
+          <div class="mc-head">
+            <span class="mc-dot ico-agent"></span>
+            <span class="mc-name">tokenswarm-multi-agent-framework/</span>
+            <span class="chip c-agent mc-chip">Agent</span>
+          </div>
+          <div class="mc-desc">轻量 Multi-Agent Swarm 编排框架，三团队架构（sensing / execution / ops）+ Supervisor，per-run 可观测。</div>
+        </a>
 
-      <a href="#card-UniMark" class="mini-card" data-cat="tool">
-        <div class="mc-head">
-          <span class="mc-dot ico-tool"></span>
-          <span class="mc-name">UniMark/</span>
-          <span class="chip c-tool mc-chip">工具</span>
-        </div>
-        <div class="mc-desc">"任意内容 → 干净 Markdown" 的统一服务，三个子模块各司其职，对外只暴露一个 server。</div>
-      </a>
+        <a href="#card-UniMark" class="mini-card" data-cat="tool">
+          <div class="mc-head">
+            <span class="mc-dot ico-tool"></span>
+            <span class="mc-name">UniMark/</span>
+            <span class="chip c-tool mc-chip">工具</span>
+          </div>
+          <div class="mc-desc">"任意内容 → 干净 Markdown" 的统一服务，三个子模块各司其职，对外只暴露一个 server。</div>
+        </a>
 
+      </div>
     </div>
   </section>
 
   <!-- ============== 项目详情 ============== -->
-  <section id="details">
-    <h2 class="section-title">项目详情 · 状态与进度<span class="count-inline">基于最近改动 + 版本号 + 进度文档推导</span></h2>
+  <section id="details" class="band band--canvas">
+    <div class="container">
+      <h2 class="section-title">项目详情<span class="count-inline">状态与进度 · 基于最近改动 + 版本号 + 进度文档推导</span></h2>
 
-    <div class="legend">
-      <span class="item"><span class="status s-active">活跃</span>近 14 天有改动</span>
-      <span class="item"><span class="status s-recent">最近活跃</span>15–30 天</span>
-      <span class="item"><span class="status s-paused">暂停</span>1–3 个月</span>
-      <span class="item"><span class="status s-archived">归档</span>3 个月+</span>
-      <span class="item"><span class="status s-vendor">第三方</span>非自研，仅参考</span>
-      <span class="item"><span class="status s-scaffold">骨架</span>仅模板</span>
-    </div>
+      <div class="legend">
+        <span class="item"><span class="status s-active">活跃</span>近 14 天有改动</span>
+        <span class="item"><span class="status s-recent">最近活跃</span>15–30 天</span>
+        <span class="item"><span class="status s-paused">暂停</span>1–3 个月</span>
+        <span class="item"><span class="status s-archived">归档</span>3 个月+</span>
+        <span class="item"><span class="status s-vendor">第三方</span>非自研，仅参考</span>
+        <span class="item"><span class="status s-scaffold">骨架</span>仅模板</span>
+      </div>
 
-    <div class="cards">
+      <div class="cards">
 
-      <article class="card" id="card-agent-reach-venv">
-        <div class="card-head">
-          <h3 class="card-title">agent-reach-venv/</h3>
-          <span class="status s-vendor">第三方 / 基础设施</span>
-          <span class="card-meta">最后改动 2026-05-11</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>Python venv（bin / lib / include / share / pyvenv.cfg）。不是业务目录，是 agent-reach 项目用的隔离环境。</p>
-          <p><span class="label">进度：</span>仅含 <code>.claude/settings.local.json</code> 一处微调；环境本体未动。无需推进。</p>
-          <p class="card-files">关键文件：pyvenv.cfg · bin/python · lib/python3.x/</p>
-        </div>
-      </article>
+        <article class="card" id="card-agent-reach-venv">
+          <div class="card-head">
+            <h3 class="card-title">agent-reach-venv/</h3>
+            <span class="status s-vendor">第三方 / 基础设施</span>
+            <span class="card-meta">最后改动 2026-05-11</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>Python venv（bin / lib / include / share / pyvenv.cfg）。不是业务目录，是 agent-reach 项目用的隔离环境。</p>
+            <p><span class="label">进度：</span>仅含 <code>.claude/settings.local.json</code> 一处微调；环境本体未动。无需推进。</p>
+            <p class="card-files">关键文件：pyvenv.cfg · bin/python · lib/python3.x/</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-AIDigest">
-        <div class="card-head">
-          <h3 class="card-title">AIDigest/</h3>
-          <span class="status s-active">活跃</span>
-          <span class="card-meta">最后改动 2026-05-13（今天）</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>每日 AI 资讯聚合器，抓 7 家公司 blog + 11 个研究员 blog + arXiv 关键词命中，输出本地 Markdown 日报与双语 HTML 索引。零云依赖，launchd 定时跑。</p>
-          <p><span class="label">进度：</span>已生产运行——<code>llm-ai/index.html</code> 今天刚刷新。两段式 pipeline（fetch → dedupe → write MD → build HTML）跑通；CLAUDE.md 与覆盖表完整。</p>
-          <p class="card-files">关键文件：README.md · CLAUDE.md · llm-ai/index.html</p>
-        </div>
-      </article>
+        <article class="card" id="card-AIDigest">
+          <div class="card-head">
+            <h3 class="card-title">AIDigest/</h3>
+            <span class="status s-active">活跃</span>
+            <span class="card-meta">最后改动 2026-05-13（今天）</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>每日 AI 资讯聚合器，抓 7 家公司 blog + 11 个研究员 blog + arXiv 关键词命中，输出本地 Markdown 日报与双语 HTML 索引。零云依赖，launchd 定时跑。</p>
+            <p><span class="label">进度：</span>已生产运行——<code>llm-ai/index.html</code> 今天刚刷新。两段式 pipeline（fetch → dedupe → write MD → build HTML）跑通；CLAUDE.md 与覆盖表完整。</p>
+            <p class="card-files">关键文件：README.md · CLAUDE.md · llm-ai/index.html</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-ble-modbus-bridge">
-        <div class="card-head">
-          <h3 class="card-title">ble-modbus-bridge/</h3>
-          <span class="status s-active">活跃</span>
-          <span class="card-meta">最后改动 2026-05-11</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>125kW 混逆 PCS 直连验证工具：异步 BLE 客户端 → AT+INVDATA 抓 Modbus 帧 → Flask web 面板把 PCS / BMS / 电表 / 柴发 / MPPT 全部点位渲染出来。</p>
-          <p><span class="label">进度：</span>硬件链路打通，三件套（<code>ble_client.py</code>·<code>connect_test.py</code>·<code>modbus_helpers.py</code>）+ 面板齐备；README 列了网关引脚与寄存器映射，处于联调阶段。</p>
-          <p class="card-files">关键文件：ble_client.py · web_panel.py · modbus_helpers.py</p>
-        </div>
-      </article>
+        <article class="card" id="card-ble-modbus-bridge">
+          <div class="card-head">
+            <h3 class="card-title">ble-modbus-bridge/</h3>
+            <span class="status s-active">活跃</span>
+            <span class="card-meta">最后改动 2026-05-11</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>125kW 混逆 PCS 直连验证工具：异步 BLE 客户端 → AT+INVDATA 抓 Modbus 帧 → Flask web 面板把 PCS / BMS / 电表 / 柴发 / MPPT 全部点位渲染出来。</p>
+            <p><span class="label">进度：</span>硬件链路打通，三件套（<code>ble_client.py</code>·<code>connect_test.py</code>·<code>modbus_helpers.py</code>）+ 面板齐备；README 列了网关引脚与寄存器映射，处于联调阶段。</p>
+            <p class="card-files">关键文件：ble_client.py · web_panel.py · modbus_helpers.py</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-career-ops">
-        <div class="card-head">
-          <h3 class="card-title">career-ops/</h3>
-          <span class="status s-paused">暂停</span>
-          <span class="card-meta">最后改动 2026-04-26（v1.5.0 冻结于 04-14）</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>"反向 AI 筛选"求职系统：候选人用多 Agent + CV 模板批量评估公司。支持 8 种语言，Claude Code / OpenCode / Gemini CLI 多 runtime。</p>
-          <p><span class="label">进度：</span>v1.5.0 已 release（CHANGELOG 记录：<code>--min-score</code> · CV 占位符 <code>{{PHONE}}</code> · dashboard 手动刷新）。近三周无业务改动，仅 <code>.DS_Store</code> 变动；处于暂停态。</p>
-          <p class="card-files">关键文件：README.md · CHANGELOG.md · cv.md · cv-*.md</p>
-        </div>
-      </article>
+        <article class="card" id="card-career-ops">
+          <div class="card-head">
+            <h3 class="card-title">career-ops/</h3>
+            <span class="status s-paused">暂停</span>
+            <span class="card-meta">最后改动 2026-04-26（v1.5.0 冻结于 04-14）</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>"反向 AI 筛选"求职系统：候选人用多 Agent + CV 模板批量评估公司。支持 8 种语言，Claude Code / OpenCode / Gemini CLI 多 runtime。</p>
+            <p><span class="label">进度：</span>v1.5.0 已 release（CHANGELOG 记录：<code>--min-score</code> · CV 占位符 <code>{{PHONE}}</code> · dashboard 手动刷新）。近三周无业务改动，仅 <code>.DS_Store</code> 变动；处于暂停态。</p>
+            <p class="card-files">关键文件：README.md · CHANGELOG.md · cv.md · cv-*.md</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-claude-code">
-        <div class="card-head">
-          <h3 class="card-title">claude-code/</h3>
-          <span class="status s-vendor">第三方 / 参考</span>
-          <span class="card-meta">最后改动 2026-04-21</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>Anthropic Claude Code CLI 的源码归档（约 38 MB），LICENSE + agent.md + server.json 齐全。</p>
-          <p><span class="label">进度：</span>不是自研项目，作快照参考。可用来研究其 Tool / Command / Service 三层结构与 Skill 加载机制。</p>
-          <p class="card-files">关键文件：agent.md · server.json · LICENSE</p>
-        </div>
-      </article>
+        <article class="card" id="card-claude-code">
+          <div class="card-head">
+            <h3 class="card-title">claude-code/</h3>
+            <span class="status s-vendor">第三方 / 参考</span>
+            <span class="card-meta">最后改动 2026-04-21</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>Anthropic Claude Code CLI 的源码归档（约 38 MB），LICENSE + agent.md + server.json 齐全。</p>
+            <p><span class="label">进度：</span>不是自研项目，作快照参考。可用来研究其 Tool / Command / Service 三层结构与 Skill 加载机制。</p>
+            <p class="card-files">关键文件：agent.md · server.json · LICENSE</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-contrast">
-        <div class="card-head">
-          <h3 class="card-title">contrast/</h3>
-          <span class="status s-recent">最近活跃</span>
-          <span class="card-meta">最后改动 2026-05-06</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>模型/提示词盲测与采购论证目录。<code>eval/</code> 含 8 个 Python 评测脚本（runner / strict / analyze / build_report），<code>结论/</code> 沉淀 Part-A·Part-B 报告（MD + HTML）与 PPT 大纲。</p>
-          <p><span class="label">进度：</span>评测一轮已跑完并产出报告 <code>结论/report.html</code>；尚无 README，结构靠目录自说明。处于"结论已交付、等下一轮"的状态。</p>
-          <p class="card-files">关键文件：eval/eval_runner.py · 结论/report.html · 结论/Part-A.md</p>
-        </div>
-      </article>
+        <article class="card" id="card-contrast">
+          <div class="card-head">
+            <h3 class="card-title">contrast/</h3>
+            <span class="status s-recent">最近活跃</span>
+            <span class="card-meta">最后改动 2026-05-06</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>模型/提示词盲测与采购论证目录。<code>eval/</code> 含 8 个 Python 评测脚本（runner / strict / analyze / build_report），<code>结论/</code> 沉淀 Part-A·Part-B 报告（MD + HTML）与 PPT 大纲。</p>
+            <p><span class="label">进度：</span>评测一轮已跑完并产出报告 <code>结论/report.html</code>；尚无 README，结构靠目录自说明。处于"结论已交付、等下一轮"的状态。</p>
+            <p class="card-files">关键文件：eval/eval_runner.py · 结论/report.html · 结论/Part-A.md</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-DeepScientist">
-        <div class="card-head">
-          <h3 class="card-title">DeepScientist/</h3>
-          <span class="status s-paused">暂停</span>
-          <span class="card-meta">最后改动 2026-04-21（v1.5.17 冻结）</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>本地化 AI 科研 Agent：每个 quest 起一个独立 repo，研究进度可视，可人工接管。Python 3.11 + TS，Apache-2.0，含 AISB 子模块。</p>
-          <p><span class="label">进度：</span>已迭代到 v1.5.17，CLAUDE.md / AGENTS.md / docs/ 结构成熟；近 3 周无 commit。功能闭环，处于维护-观察期。</p>
-          <p class="card-files">关键文件：README.md · package.json (v1.5.17) · AGENTS.md</p>
-        </div>
-      </article>
+        <article class="card" id="card-DeepScientist">
+          <div class="card-head">
+            <h3 class="card-title">DeepScientist/</h3>
+            <span class="status s-paused">暂停</span>
+            <span class="card-meta">最后改动 2026-04-21（v1.5.17 冻结）</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>本地化 AI 科研 Agent：每个 quest 起一个独立 repo，研究进度可视，可人工接管。Python 3.11 + TS，Apache-2.0，含 AISB 子模块。</p>
+            <p><span class="label">进度：</span>已迭代到 v1.5.17，CLAUDE.md / AGENTS.md / docs/ 结构成熟；近 3 周无 commit。功能闭环，处于维护-观察期。</p>
+            <p class="card-files">关键文件：README.md · package.json (v1.5.17) · AGENTS.md</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-douyin">
-        <div class="card-head">
-          <h3 class="card-title">douyin/</h3>
-          <span class="status s-active">活跃</span>
-          <span class="card-meta">最后改动 2026-05-10</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>抖音作者主页归档 + 转录工具链：TikTokDownloader v5.8 拉视频 → 提取图文/文字稿 → mlx-whisper（large-v3）转录。</p>
-          <p><span class="label">进度：</span>当前账号已 <b>38/38 全量完成</b>：34 个视频 + 1 个图集 + 3 条文字，约 36K 字稿件。<code>INDEX.md</code> 全量跟踪状态。</p>
-          <p class="card-files">关键文件：INDEX.md · transcripts/ (34 篇) · raw_dump/</p>
-        </div>
-      </article>
+        <article class="card" id="card-douyin">
+          <div class="card-head">
+            <h3 class="card-title">douyin/</h3>
+            <span class="status s-active">活跃</span>
+            <span class="card-meta">最后改动 2026-05-10</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>抖音作者主页归档 + 转录工具链：TikTokDownloader v5.8 拉视频 → 提取图文/文字稿 → mlx-whisper（large-v3）转录。</p>
+            <p><span class="label">进度：</span>当前账号已 <b>38/38 全量完成</b>：34 个视频 + 1 个图集 + 3 条文字，约 36K 字稿件。<code>INDEX.md</code> 全量跟踪状态。</p>
+            <p class="card-files">关键文件：INDEX.md · transcripts/ (34 篇) · raw_dump/</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-fund-details">
-        <div class="card-head">
-          <h3 class="card-title">fund-details/</h3>
-          <span class="status s-active">活跃</span>
-          <span class="card-meta">最后改动 2026-05-12</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>资金流向 + 基金持仓查询服务（<code>streamlit run app.py</code>）。Tushare Pro 唯一数据源，含季度/每日持仓、估算、Top-500 排名、ETF 双路径估值（被动算指数 / 主动用 PCF）。</p>
-          <p><span class="label">进度：</span>当前在做 ETF 持仓估值（2026-05-12 引入双路径方案）。CLAUDE.md 已严格化数据策略（缓存纪律、公式需 WebSearch + 引用），<code>踩坑日志.md</code> 100+ 条；正在功能演进。</p>
-          <p class="card-files">关键文件：CLAUDE.md · holding_fetcher.py · query_holding.py · 踩坑日志.md</p>
-        </div>
-      </article>
+        <article class="card" id="card-fund-details">
+          <div class="card-head">
+            <h3 class="card-title">fund-details/</h3>
+            <span class="status s-active">活跃</span>
+            <span class="card-meta">最后改动 2026-05-12</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>资金流向 + 基金持仓查询服务（<code>streamlit run app.py</code>）。Tushare Pro 唯一数据源，含季度/每日持仓、估算、Top-500 排名、ETF 双路径估值（被动算指数 / 主动用 PCF）。</p>
+            <p><span class="label">进度：</span>当前在做 ETF 持仓估值（2026-05-12 引入双路径方案）。CLAUDE.md 已严格化数据策略（缓存纪律、公式需 WebSearch + 引用），<code>踩坑日志.md</code> 100+ 条；正在功能演进。</p>
+            <p class="card-files">关键文件：CLAUDE.md · holding_fetcher.py · query_holding.py · 踩坑日志.md</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-gbrain">
-        <div class="card-head">
-          <h3 class="card-title">gbrain/</h3>
-          <span class="status s-recent">最近活跃</span>
-          <span class="card-meta">最后改动 2026-05-06（v0.27.0 于 04-28 发布）</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>给 AI Agent 装"大脑"：PGLite 持久化 + 混合搜索 + 自动 typed link 抽取（零 LLM 调用）+ 反向链接排序，回答向量答不出的关系问题。</p>
-          <p><span class="label">进度：</span>稳定语义化版本 v0.27.0；README + CHANGELOG + VERSION 齐备，无 <code>dist/</code> 产物（仍处开发态）。聚焦记忆子系统，范围克制。</p>
-          <p class="card-files">关键文件：README.md · VERSION (0.27.0) · CHANGELOG.md</p>
-        </div>
-      </article>
+        <article class="card" id="card-gbrain">
+          <div class="card-head">
+            <h3 class="card-title">gbrain/</h3>
+            <span class="status s-recent">最近活跃</span>
+            <span class="card-meta">最后改动 2026-05-06（v0.27.0 于 04-28 发布）</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>给 AI Agent 装"大脑"：PGLite 持久化 + 混合搜索 + 自动 typed link 抽取（零 LLM 调用）+ 反向链接排序，回答向量答不出的关系问题。</p>
+            <p><span class="label">进度：</span>稳定语义化版本 v0.27.0；README + CHANGELOG + VERSION 齐备，无 <code>dist/</code> 产物（仍处开发态）。聚焦记忆子系统，范围克制。</p>
+            <p class="card-files">关键文件：README.md · VERSION (0.27.0) · CHANGELOG.md</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-gold">
-        <div class="card-head">
-          <h3 class="card-title">gold-market-comprehensive-intelligence-system/</h3>
-          <span class="status s-recent">最近活跃</span>
-          <span class="card-meta">最后改动 2026-04-26</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>Gold Sentinel v2.0：5 个 Sub-Agent 并行分析黄金市场（宏观 / 技术 / 情绪 / 地缘 / 结构），事件总线 + 自进化引擎，Vue 3 前端 WebSocket 实时面板（:3001）。</p>
-          <p><span class="label">进度：</span>v2.0 架构落定（DESIGN.md / STRATEGY.md 完整），TS strict + Express 5 + better-sqlite3 + Anthropic SDK；上一次改动是 llm-ai 文档微调，主线 17 天未动。</p>
-          <p class="card-files">关键文件：README.md · llm-ai/DESIGN.md · llm-ai/STRATEGY.md</p>
-        </div>
-      </article>
+        <article class="card" id="card-gold">
+          <div class="card-head">
+            <h3 class="card-title">gold-market-comprehensive-intelligence-system/</h3>
+            <span class="status s-recent">最近活跃</span>
+            <span class="card-meta">最后改动 2026-04-26</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>Gold Sentinel v2.0：5 个 Sub-Agent 并行分析黄金市场（宏观 / 技术 / 情绪 / 地缘 / 结构），事件总线 + 自进化引擎，Vue 3 前端 WebSocket 实时面板（:3001）。</p>
+            <p><span class="label">进度：</span>v2.0 架构落定（DESIGN.md / STRATEGY.md 完整），TS strict + Express 5 + better-sqlite3 + Anthropic SDK；上一次改动是 llm-ai 文档微调，主线 17 天未动。</p>
+            <p class="card-files">关键文件：README.md · llm-ai/DESIGN.md · llm-ai/STRATEGY.md</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-pm-frame">
-        <div class="card-head">
-          <h3 class="card-title">pm-frame/</h3>
-          <span class="status s-scaffold">骨架 · 暂停</span>
-          <span class="card-meta">最后改动 2026-05-03（v0.1.0）</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>Vue CLI 标准前端骨架，PM 系统模板（<code>npm run serve / build / lint</code>）。</p>
-          <p><span class="label">进度：</span>v0.1.0 冻结，<code>dist/</code> 已构建一版，但近 10 天无业务代码增量；仍是模板状态。</p>
-          <p class="card-files">关键文件：package.json (v0.1.0) · src/ · dist/</p>
-        </div>
-      </article>
+        <article class="card" id="card-pm-frame">
+          <div class="card-head">
+            <h3 class="card-title">pm-frame/</h3>
+            <span class="status s-scaffold">骨架 · 暂停</span>
+            <span class="card-meta">最后改动 2026-05-03（v0.1.0）</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>Vue CLI 标准前端骨架，PM 系统模板（<code>npm run serve / build / lint</code>）。</p>
+            <p><span class="label">进度：</span>v0.1.0 冻结，<code>dist/</code> 已构建一版，但近 10 天无业务代码增量；仍是模板状态。</p>
+            <p class="card-files">关键文件：package.json (v0.1.0) · src/ · dist/</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-PortHub">
-        <div class="card-head">
-          <h3 class="card-title">PortHub/</h3>
-          <span class="status s-active">活跃</span>
-          <span class="card-meta">最后改动 2026-05-10</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>主机 106.53.31.32 的端口/服务卡片导航页，单文件 HTML（519 行）+ <code>导航.svg</code>。CLAUDE.md 写明工作流：curl 目标端口 → 抽 title/desc → 追加一张 card。</p>
-          <p><span class="label">进度：</span>静态交付，每加一个服务就追加一卡；近期仍在更新卡片，零依赖、零后端，不需迭代版本。</p>
-          <p class="card-files">关键文件：index.html (519 行) · CLAUDE.md · 导航.svg</p>
-        </div>
-      </article>
+        <article class="card" id="card-PortHub">
+          <div class="card-head">
+            <h3 class="card-title">PortHub/</h3>
+            <span class="status s-active">活跃</span>
+            <span class="card-meta">最后改动 2026-05-10</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>主机 106.53.31.32 的端口/服务卡片导航页，单文件 HTML（519 行）+ <code>导航.svg</code>。CLAUDE.md 写明工作流：curl 目标端口 → 抽 title/desc → 追加一张 card。</p>
+            <p><span class="label">进度：</span>静态交付，每加一个服务就追加一卡；近期仍在更新卡片，零依赖、零后端，不需迭代版本。</p>
+            <p class="card-files">关键文件：index.html (519 行) · CLAUDE.md · 导航.svg</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-prompts">
-        <div class="card-head">
-          <h3 class="card-title">prompts/</h3>
-          <span class="status s-active">活跃 · 新建</span>
-          <span class="card-meta">最后改动 2026-05-11</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>"提示词记录"档案：单文件 <code>index.html</code>（468 行），本地浏览器直开，作为提示词速查卡。</p>
-          <p><span class="label">进度：</span>本周新增的目录（上一版索引页里还没它）。结构、风格类似 PortHub——静态卡片化收纳，处于持续追加阶段。</p>
-          <p class="card-files">关键文件：index.html (468 行)</p>
-        </div>
-      </article>
+        <article class="card" id="card-prompts">
+          <div class="card-head">
+            <h3 class="card-title">prompts/</h3>
+            <span class="status s-active">活跃 · 新建</span>
+            <span class="card-meta">最后改动 2026-05-11</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>"提示词记录"档案：单文件 <code>index.html</code>（468 行），本地浏览器直开，作为提示词速查卡。</p>
+            <p><span class="label">进度：</span>本周新增的目录（上一版索引页里还没它）。结构、风格类似 PortHub——静态卡片化收纳，处于持续追加阶段。</p>
+            <p class="card-files">关键文件：index.html (468 行)</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-skill">
-        <div class="card-head">
-          <h3 class="card-title">Skill研究/</h3>
-          <span class="status s-active">活跃 · 沙盒</span>
-          <span class="card-meta">最后改动 2026-05-07</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>Skill / Agent 实验合集（15 个子项目）：agency-agents·agency-agents-zh·ai-agent-deep-dive·ai-hedge-fund·awesome-design-md·claude-code-guide·custom-skills·edict·gstack·ielts-coach·pua·skill-dashboard·superpowers·tong-jincheng-skill·ui-ux-pro-max-skill。</p>
-          <p><span class="label">进度：</span>大部分子项目最近一次改动集中在 <b>2026-04-27</b>（批量同步），仅 <code>ai-agent-deep-dive</code> 与 <code>claude-code-guide</code> 在 05-07 有更新（后者声明每 2 天自动刷新）。<b>沙盒性质</b>——原型/参考为主，非生产。</p>
-          <p class="card-files">关键文件：各子项目 README.md（自包含）</p>
-        </div>
-      </article>
+        <article class="card" id="card-skill">
+          <div class="card-head">
+            <h3 class="card-title">Skill研究/</h3>
+            <span class="status s-active">活跃 · 沙盒</span>
+            <span class="card-meta">最后改动 2026-05-07</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>Skill / Agent 实验合集（15 个子项目）：agency-agents·agency-agents-zh·ai-agent-deep-dive·ai-hedge-fund·awesome-design-md·claude-code-guide·custom-skills·edict·gstack·ielts-coach·pua·skill-dashboard·superpowers·tong-jincheng-skill·ui-ux-pro-max-skill。</p>
+            <p><span class="label">进度：</span>大部分子项目最近一次改动集中在 <b>2026-04-27</b>（批量同步），仅 <code>ai-agent-deep-dive</code> 与 <code>claude-code-guide</code> 在 05-07 有更新（后者声明每 2 天自动刷新）。<b>沙盒性质</b>——原型/参考为主，非生产。</p>
+            <p class="card-files">关键文件：各子项目 README.md（自包含）</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-superpowers">
-        <div class="card-head">
-          <h3 class="card-title">superpowers/</h3>
-          <span class="status s-paused">暂停 · 维护态</span>
-          <span class="card-meta">最后改动 2026-05-03（v5.0.7）</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>Claude Code 的 Skill 体系方法论库 v5.0.7：Spec → Plan → 子代理执行，强调 TDD / YAGNI / DRY，Skills 自动触发。</p>
-          <p><span class="label">进度：</span>语义化版本已到 v5.0.7，README / CLAUDE.md / src 完整；近 10 天无业务改动，处于"功能完整 → 维护"阶段。</p>
-          <p class="card-files">关键文件：package.json (v5.0.7) · README.md · CLAUDE.md</p>
-        </div>
-      </article>
+        <article class="card" id="card-superpowers">
+          <div class="card-head">
+            <h3 class="card-title">superpowers/</h3>
+            <span class="status s-paused">暂停 · 维护态</span>
+            <span class="card-meta">最后改动 2026-05-03（v5.0.7）</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>Claude Code 的 Skill 体系方法论库 v5.0.7：Spec → Plan → 子代理执行，强调 TDD / YAGNI / DRY，Skills 自动触发。</p>
+            <p><span class="label">进度：</span>语义化版本已到 v5.0.7，README / CLAUDE.md / src 完整；近 10 天无业务改动，处于"功能完整 → 维护"阶段。</p>
+            <p class="card-files">关键文件：package.json (v5.0.7) · README.md · CLAUDE.md</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-tokenswarm">
-        <div class="card-head">
-          <h3 class="card-title">tokenswarm-multi-agent-framework/</h3>
-          <span class="status s-active">活跃</span>
-          <span class="card-meta">最后改动 2026-05-10</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>轻量 Multi-Agent Swarm 编排框架（依赖少，相较重型框架的替代品）：pub/sub 总线 + 三团队（sensing / execution / ops）+ Supervisor，per-run 落盘可观测，<code>timeline.html</code> 开箱即用。</p>
-          <p><span class="label">进度：</span><code>pip install -e '.[dev]'</code> 跑通；<code>out/runs/2026-05-10T11:30Z</code> 留有最新跑批产物。仍在做 demo（sort / echo 任务）与可观测性打磨。</p>
-          <p class="card-files">关键文件：README.md · pyproject.toml · out/runs/</p>
-        </div>
-      </article>
+        <article class="card" id="card-tokenswarm">
+          <div class="card-head">
+            <h3 class="card-title">tokenswarm-multi-agent-framework/</h3>
+            <span class="status s-active">活跃</span>
+            <span class="card-meta">最后改动 2026-05-10</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>轻量 Multi-Agent Swarm 编排框架（依赖少，相较重型框架的替代品）：pub/sub 总线 + 三团队（sensing / execution / ops）+ Supervisor，per-run 落盘可观测，<code>timeline.html</code> 开箱即用。</p>
+            <p><span class="label">进度：</span><code>pip install -e '.[dev]'</code> 跑通；<code>out/runs/2026-05-10T11:30Z</code> 留有最新跑批产物。仍在做 demo（sort / echo 任务）与可观测性打磨。</p>
+            <p class="card-files">关键文件：README.md · pyproject.toml · out/runs/</p>
+          </div>
+        </article>
 
-      <article class="card" id="card-UniMark">
-        <div class="card-head">
-          <h3 class="card-title">UniMark/</h3>
-          <span class="status s-recent">最近活跃</span>
-          <span class="card-meta">最后改动 2026-05-01</span>
-        </div>
-        <div class="card-body">
-          <p><span class="label">是什么：</span>"任意内容 → 干净 Markdown" 三件套：<code>defuddle</code>（网页正文抽取）+ <code>markitdown</code>（万能格式转换，集成微软 SDK）+ <code>server</code>（部署封装），对外只暴露 server。</p>
-          <p><span class="label">进度：</span>defuddle 子模块 v0.18.1，README 明确标注 <em>"very much WIP"</em>；server 最近一次动作是部署配置（<code>server/deploy/unimark.env</code>）。整体 12 天未动主线，处于"上次发版后短暂搁置"。</p>
-          <p class="card-files">关键文件：defuddle/README.md · defuddle/package.json (v0.18.1) · server/deploy/unimark.env</p>
-        </div>
-      </article>
+        <article class="card" id="card-UniMark">
+          <div class="card-head">
+            <h3 class="card-title">UniMark/</h3>
+            <span class="status s-recent">最近活跃</span>
+            <span class="card-meta">最后改动 2026-05-01</span>
+          </div>
+          <div class="card-body">
+            <p><span class="label">是什么：</span>"任意内容 → 干净 Markdown" 三件套：<code>defuddle</code>（网页正文抽取）+ <code>markitdown</code>（万能格式转换，集成微软 SDK）+ <code>server</code>（部署封装），对外只暴露 server。</p>
+            <p><span class="label">进度：</span>defuddle 子模块 v0.18.1，README 明确标注 <em>"very much WIP"</em>；server 最近一次动作是部署配置（<code>server/deploy/unimark.env</code>）。整体 12 天未动主线，处于"上次发版后短暂搁置"。</p>
+            <p class="card-files">关键文件：defuddle/README.md · defuddle/package.json (v0.18.1) · server/deploy/unimark.env</p>
+          </div>
+        </article>
 
+      </div>
     </div>
   </section>
 
