@@ -46,10 +46,16 @@ function deriveSeed(alarmId: string | undefined): number | undefined {
  * 把真正的上游原因（模型不存在 / 鉴权失败 / 网关异常）暴露到日志里。
  */
 export function firstChoiceMessage(raw: unknown): OpenAI.ChatCompletionMessage {
-  const message = (raw as OpenAI.ChatCompletion | null | undefined)?.choices?.[0]?.message;
+  // 有的网关把 JSON 响应体以 text/plain 返回，SDK 不解析 → raw 为字符串；这里兜底 JSON.parse，
+  // 避免本可成功的响应被误判为"缺 choices"而白白触发重试。
+  let obj: unknown = raw;
+  if (typeof obj === 'string') {
+    try { obj = JSON.parse(obj); } catch { /* 非 JSON：保持原样，下方抛含原文的可诊断错误 */ }
+  }
+  const message = (obj as OpenAI.ChatCompletion | null | undefined)?.choices?.[0]?.message;
   if (!message) {
     let snippet: string;
-    try { snippet = JSON.stringify(raw); } catch { snippet = String(raw); }
+    try { snippet = typeof raw === 'string' ? raw : JSON.stringify(raw); } catch { snippet = String(raw); }
     throw new Error(
       `OpenAI 兼容响应缺少 choices[0].message（疑似网关返回非标准/错误响应体）: ${(snippet ?? String(raw)).slice(0, 600)}`,
     );

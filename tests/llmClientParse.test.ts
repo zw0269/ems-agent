@@ -22,4 +22,13 @@ describe('firstChoiceMessage（防御网关非标准响应）', () => {
     expect(() => firstChoiceMessage(undefined)).toThrowError(/choices\[0\]/);
     expect(() => firstChoiceMessage({ choices: [] })).toThrowError(/choices\[0\]/);
   });
+
+  it('网关以字符串形式返回 JSON 响应体（text/plain）→ 解析后正常取 message，不再误触发重试', () => {
+    const raw = JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' } }] });
+    expect(firstChoiceMessage(raw)).toEqual({ role: 'assistant', content: 'ok' });
+  });
+
+  it('字符串但非 JSON → 抛含原文的可诊断错误', () => {
+    expect(() => firstChoiceMessage('hiService Unavailable')).toThrowError(/Unavailable/);
+  });
 });
