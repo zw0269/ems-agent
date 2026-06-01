@@ -12,3 +12,11 @@ data/*.db
 
 # Build
 dist/
+
+# Secrets / dotenv（恢复越界提交误删的规则；.env 含密钥，绝不入库）
+.env
+.env.local
+.env.*.local
+
+# Claude Code local settings
+.claude/
