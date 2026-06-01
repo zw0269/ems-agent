@@ -37,6 +37,26 @@ function deriveSeed(alarmId: string | undefined): number | undefined {
   return parseInt(hex, 16);
 }
 
+/**
+ * 安全提取 OpenAI 兼容响应的首条 message。
+ *
+ * 非标准 / 错误网关常返回不含 choices 的 2xx 响应体（如 {error:{...}}），此时
+ * 直接 `raw.choices[0]` 会抛 "Cannot read properties of undefined (reading '0')"
+ * 这种不可诊断的崩溃。这里改为：缺失时抛出**含响应体片段**的可诊断错误，
+ * 把真正的上游原因（模型不存在 / 鉴权失败 / 网关异常）暴露到日志里。
+ */
+export function firstChoiceMessage(raw: unknown): OpenAI.ChatCompletionMessage {
+  const message = (raw as OpenAI.ChatCompletion | null | undefined)?.choices?.[0]?.message;
+  if (!message) {
+    let snippet: string;
+    try { snippet = JSON.stringify(raw); } catch { snippet = String(raw); }
+    throw new Error(
+      `OpenAI 兼容响应缺少 choices[0].message（疑似网关返回非标准/错误响应体）: ${(snippet ?? String(raw)).slice(0, 600)}`,
+    );
+  }
+  return message;
+}
+
 export class LLMClient {
   private provider: LLMProviderType;
   private model: string;
@@ -259,8 +279,7 @@ export class LLMClient {
     const cacheReadTokens   = (raw.usage as any)?.prompt_tokens_details?.cached_tokens ?? 0;
     const cacheWriteTokens  = 0; // OpenAI 无显式 write 统计
 
-    const message = raw.choices[0]?.message;
-    if (!message) throw new Error('LLM 返回空响应');
+    const message = firstChoiceMessage(raw);
 
     if (message.tool_calls?.length) {
       const tc = message.tool_calls[0]!;
