@@ -1,38 +1,14 @@
+# Dependencies
+node_modules/
+
 # Logs
-logs
+logs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
 # Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
+data/*.db
+*.db-shm
+*.db-wal
 
-# Dependency directories
-node_modules/
-jspm_packages/
-
-# TypeScript build output
+# Build
 dist/
-typings/
-
-# dotenv environment variables
-.env
-
-# Claude Code local settings
-.claude/
-
-# Optional caches
-.npm
-.eslintcache
-.node_repl_history
-.yarn-integrity
-*.tgz
-
-# next.js
-.next
-
-
